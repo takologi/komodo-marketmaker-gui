@@ -9,10 +9,18 @@ export interface WalletView {
 }
 
 export function adaptWallets(raw: WalletViewRaw[]): WalletView[] {
-  return raw.map((row) => ({
-    coin: asString(row.ticker ?? row.coin, "unknown"),
-    address: asString(row.address, "n/a"),
-    balance: asNumber(row.balance),
-    spendable: asNumber(row.spendable_balance ?? row.available),
-  }));
+  return raw.map((row) => {
+    const balance = asNumber(row.balance);
+    const unspendable = asNumber(row.unspendable_balance, 0);
+    const explicitSpendable = asNumber(row.spendable_balance ?? row.available, Number.NaN);
+
+    return {
+      coin: asString(row.ticker ?? row.coin, "unknown"),
+      address: asString(row.address, "n/a"),
+      balance,
+      spendable: Number.isNaN(explicitSpendable)
+        ? Math.max(0, balance - unspendable)
+        : explicitSpendable,
+    };
+  });
 }

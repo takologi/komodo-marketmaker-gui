@@ -13,11 +13,15 @@ interface DashboardStatusView {
   connectionOk: boolean;
   connectionMessage: string;
   simpleMm: {
-    healthy: boolean;
-    state: string;
-    runningSeconds: number;
-    strategy: string;
-    pair: string;
+    available: boolean;
+    status?: {
+      healthy: boolean;
+      state: string;
+      runningSeconds: number;
+      strategy: string;
+      pair: string;
+    };
+    message?: string;
   };
   refreshRateMs: number;
   configuredPairs: string[];
@@ -84,18 +88,31 @@ export default function HomePage() {
             <div>
               <p>
                 <span className="status">
-                  <span className={`dot ${data.simpleMm.healthy ? "ok" : "bad"}`} />
-                  {data.simpleMm.healthy ? "Healthy" : "Unhealthy"}
+                  <span
+                    className={`dot ${
+                      data.simpleMm.available && data.simpleMm.status?.healthy ? "ok" : "bad"
+                    }`}
+                  />
+                  {data.simpleMm.available
+                    ? data.simpleMm.status?.healthy
+                      ? "Healthy"
+                      : "Unhealthy"
+                    : "Unavailable"}
                 </span>
               </p>
               <p className="muted" style={{ marginTop: "0.45rem" }}>
-                State: {data.simpleMm.state}
+                State: {data.simpleMm.status?.state ?? "unavailable"}
               </p>
+              {!data.simpleMm.available && data.simpleMm.message ? (
+                <p className="muted" style={{ marginTop: "0.45rem" }}>
+                  {data.simpleMm.message}
+                </p>
+              ) : null}
             </div>
             <div>
-              <p>Pair: {data.simpleMm.pair}</p>
-              <p>Strategy: {data.simpleMm.strategy}</p>
-              <p>Uptime: {data.simpleMm.runningSeconds}s</p>
+              <p>Pair: {data.simpleMm.status?.pair ?? "not configured"}</p>
+              <p>Strategy: {data.simpleMm.status?.strategy ?? "simple-mm"}</p>
+              <p>Uptime: {data.simpleMm.status?.runningSeconds ?? 0}s</p>
             </div>
           </div>
         ) : null}

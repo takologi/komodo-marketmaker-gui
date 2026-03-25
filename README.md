@@ -56,6 +56,7 @@ Open `http://localhost:3000`.
 - `KDF_RPC_URL` (required)
 - `KDF_RPC_USERPASS` (optional, server-side only)
 - `KDF_RPC_TIMEOUT_MS` (optional)
+- `KDF_RPC_MMRPC_VERSION` (optional; leave empty for legacy-compatible methods)
 - `MM2_RESTART_TOKEN` (required for admin restart route)
 - `MM2_RESTART_MODE` (`disabled` | `systemctl` | `script`)
 - `MM2_SYSTEMD_SERVICE` (required if mode is `systemctl`)

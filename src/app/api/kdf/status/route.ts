@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 
 import { adaptOrders } from "@/lib/kdf/adapters/orders";
 import { adaptStatus } from "@/lib/kdf/adapters/status";
-import { fetchOrdersRaw, fetchSimpleMmStatus, fetchVersionOptional, StatusViewRaw } from "@/lib/kdf/client";
+import {
+  fetchOrdersRaw,
+  fetchSimpleMmStatusOptional,
+  fetchVersionOptional,
+  StatusViewRaw,
+} from "@/lib/kdf/client";
 import { UiApiResponse } from "@/lib/kdf/types";
 
 interface PairStatus {
@@ -13,7 +18,11 @@ interface PairStatus {
 interface DashboardStatusView {
   connectionOk: boolean;
   connectionMessage: string;
-  simpleMm: ReturnType<typeof adaptStatus>;
+  simpleMm: {
+    available: boolean;
+    status?: ReturnType<typeof adaptStatus>;
+    message?: string;
+  };
   refreshRateMs: number;
   configuredPairs: string[];
   activeOrderCount: number;
@@ -44,19 +53,35 @@ function parseConfiguredPairs(raw: StatusViewRaw, statusPair: string): string[] 
   return [];
 }
 
+function emptyStatusRaw(): StatusViewRaw {
+  return {
+    state: "unavailable",
+    status: "unavailable",
+    strategy: "simple-mm",
+    pair: "not configured",
+    running_seconds: 0,
+  };
+}
+
 export async function GET() {
   const fetchedAt = new Date().toISOString();
   try {
-    const [rawStatus, rawOrders, versionOptional] = await Promise.all([
-      fetchSimpleMmStatus(),
+    const [rawStatusOptional, rawOrders, versionOptional] = await Promise.all([
+      fetchSimpleMmStatusOptional(),
       fetchOrdersRaw(),
       fetchVersionOptional(),
     ]);
 
-    const simpleMm = adaptStatus(rawStatus);
+    const simpleMmStatus = rawStatusOptional.available
+      ? adaptStatus(rawStatusOptional.raw ?? emptyStatusRaw())
+      : undefined;
+
     const orders = adaptOrders(rawOrders);
     const activeOrderUuids = orders.map((order) => order.id);
-    const configuredPairs = parseConfiguredPairs(rawStatus, simpleMm.pair);
+    const configuredPairs = parseConfiguredPairs(
+      rawStatusOptional.raw ?? emptyStatusRaw(),
+      simpleMmStatus?.pair ?? "not configured",
+    );
 
     const activePairsSet = new Set(
       orders.map((order) => `${order.base}/${order.rel}`.toUpperCase()),
@@ -71,7 +96,11 @@ export async function GET() {
     const data: DashboardStatusView = {
       connectionOk: true,
       connectionMessage: "KDF RPC reachable through internal server route",
-      simpleMm,
+      simpleMm: {
+        available: rawStatusOptional.available,
+        status: simpleMmStatus,
+        message: rawStatusOptional.message,
+      },
       refreshRateMs: Number.parseInt(process.env.NEXT_PUBLIC_POLL_MS ?? "5000", 10) || 5000,
       configuredPairs: normalizedConfiguredPairs,
       activeOrderCount: orders.length,
