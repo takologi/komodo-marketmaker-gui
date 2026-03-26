@@ -4,19 +4,11 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { sendMessageToClient } from "@/lib/debug/popup-bus";
+import { getRuntimeDebugLevels } from "@/lib/debug/runtime-levels";
 import {
   DebugSeverity,
   isSeverityAtOrAbove,
-  normalizeSeverity,
 } from "@/lib/debug/severity";
-
-function getDebugMessageLevel(): DebugSeverity {
-  return normalizeSeverity(process.env.DEBUG_MESSAGE_LEVEL, "error");
-}
-
-function getDebugLogLevel(): DebugSeverity {
-  return normalizeSeverity(process.env.DEBUG_LOG_LEVEL, "warning");
-}
 
 function getLogFilePath(): string {
   return process.env.LOG_FILE || "./logs/komodo-marketmaker-gui.log";
@@ -48,8 +40,9 @@ export async function logDebugEvent(input: {
   const timestamp = new Date().toISOString();
   const details = input.details !== undefined ? ` details=${safeStringify(input.details)}` : "";
   const line = `[${timestamp}] [${input.severity.toUpperCase()}] ${input.title} :: ${input.body}${details}`;
+  const runtimeLevels = getRuntimeDebugLevels();
 
-  if (isSeverityAtOrAbove(input.severity, getDebugLogLevel())) {
+  if (isSeverityAtOrAbove(input.severity, runtimeLevels.logLevel)) {
     try {
       await appendToLogFile(line);
     } catch (error) {
@@ -58,7 +51,7 @@ export async function logDebugEvent(input: {
     }
   }
 
-  if (isSeverityAtOrAbove(input.severity, getDebugMessageLevel())) {
+  if (isSeverityAtOrAbove(input.severity, runtimeLevels.messageLevel)) {
     sendMessageToClient({
       timestamp,
       severity: input.severity,

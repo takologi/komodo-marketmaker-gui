@@ -116,25 +116,29 @@ async function doRpcCall<T = JsonValue>(
       throw new Error(payload.error_message || payload.error || "KDF returned an error");
     }
 
-    if (!("result" in payload)) {
-      await logDebugEvent({
-        severity: "warning",
-        title: "KDF RPC unexpected shape",
-        body: `RPC method=${method} response has no result field`,
-        details: payload,
-      });
-
-      await logDebugEvent({
-        severity: "debug",
-        title: "KDF RPC legacy fallback",
-        body: `Using direct payload as result for method=${method}`,
-        details: payload,
-      });
-
-      return payload as T;
+    if ("result" in payload) {
+      return payload.result as T;
     }
 
-    return payload.result as T;
+    if ("response" in payload) {
+      await logDebugEvent({
+        severity: "debug",
+        title: "KDF RPC response wrapper",
+        body: `Using payload.response as result for method=${method}`,
+        details: payload,
+      });
+
+      return payload.response as T;
+    }
+
+    await logDebugEvent({
+      severity: "debug",
+      title: "KDF RPC direct payload fallback",
+      body: `No result/response wrapper for method=${method}; using root payload`,
+      details: payload,
+    });
+
+    return payload as T;
   } catch (error) {
     await logDebugEvent({
       severity: "error",

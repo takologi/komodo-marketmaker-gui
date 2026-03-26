@@ -189,6 +189,7 @@ a {
 }
 
 .controls input,
+.controls select,
 .controls button {
   width: 100%;
   border-radius: 8px;
@@ -198,6 +199,11 @@ a {
 }
 
 .controls input {
+  background: #091126;
+  color: var(--foreground);
+}
+
+.controls select {
   background: #091126;
   color: var(--foreground);
 }
