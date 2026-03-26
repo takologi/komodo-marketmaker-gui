@@ -123,6 +123,15 @@ async function doRpcCall<T = JsonValue>(
         body: `RPC method=${method} response has no result field`,
         details: payload,
       });
+
+      await logDebugEvent({
+        severity: "debug",
+        title: "KDF RPC legacy fallback",
+        body: `Using direct payload as result for method=${method}`,
+        details: payload,
+      });
+
+      return payload as T;
     }
 
     return payload.result as T;
