@@ -270,6 +270,20 @@ pre {
   background: #0b1327;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
   padding: 0.6rem 0.65rem;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.99);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.debug-popup.phase-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.debug-popup.phase-entering,
+.debug-popup.phase-closing {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.99);
 }
 
 .debug-popup header {

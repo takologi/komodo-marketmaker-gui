@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Nav } from "@/components/nav";
 
@@ -32,6 +32,7 @@ export default function AdminPage() {
   const [logLevel, setLogLevel] = useState<DebugSeverity>("debug");
   const [levelsBusy, setLevelsBusy] = useState(false);
   const [levelsResult, setLevelsResult] = useState<string | null>(null);
+  const [levelsReady, setLevelsReady] = useState(false);
 
   async function onRestartClick() {
     setBusy(true);
@@ -75,7 +76,8 @@ export default function AdminPage() {
 
       setMessageLevel(json.data.messageLevel);
       setLogLevel(json.data.logLevel);
-      setLevelsResult("Runtime levels loaded");
+      setLevelsResult("Runtime levels synced");
+      setLevelsReady(true);
     } catch {
       setLevelsResult("Failed to contact runtime level endpoint");
     } finally {
@@ -83,23 +85,10 @@ export default function AdminPage() {
     }
   }
 
-  async function saveRuntimeLevels() {
+  async function saveRuntimeLevels(nextMessageLevel: DebugSeverity, nextLogLevel: DebugSeverity) {
     if (!token) {
       setLevelsResult("Admin token required to save runtime levels");
       return;
-    }
-
-    const selectedHighVerbosity =
-      [messageLevel, logLevel].includes("debug") || [messageLevel, logLevel].includes("trace");
-
-    if (selectedHighVerbosity) {
-      const confirmed = window.confirm(
-        "Are you sure? Setting DEBUG_MESSAGE_LEVEL or DEBUG_LOG_LEVEL to debug/trace can generate a high number of popup and/or log writes.",
-      );
-      if (!confirmed) {
-        setLevelsResult("Runtime level change cancelled");
-        return;
-      }
     }
 
     setLevelsBusy(true);
@@ -111,12 +100,16 @@ export default function AdminPage() {
           "x-admin-token": token,
         },
         body: JSON.stringify({
-          messageLevel,
-          logLevel,
+          messageLevel: nextMessageLevel,
+          logLevel: nextLogLevel,
         }),
       });
 
       const json = (await res.json()) as DebugLevelsResponse;
+      if (json.ok && json.data) {
+        setMessageLevel(json.data.messageLevel);
+        setLogLevel(json.data.logLevel);
+      }
       setLevelsResult(json.message || "Runtime levels updated");
     } catch {
       setLevelsResult("Failed to save runtime levels");
@@ -124,6 +117,64 @@ export default function AdminPage() {
       setLevelsBusy(false);
     }
   }
+
+  const verbosityRank: Record<DebugSeverity, number> = {
+    critical: 0,
+    error: 1,
+    warning: 2,
+    info: 3,
+    debug: 4,
+    trace: 5,
+  };
+
+  function shouldConfirmIncrease(oldLevel: DebugSeverity, newLevel: DebugSeverity): boolean {
+    const moreDetailed = verbosityRank[newLevel] > verbosityRank[oldLevel];
+    const belowInfo = newLevel === "debug" || newLevel === "trace";
+    return moreDetailed && belowInfo;
+  }
+
+  async function onMessageLevelChange(next: DebugSeverity) {
+    const previous = messageLevel;
+
+    if (shouldConfirmIncrease(previous, next)) {
+      const confirmed = window.confirm(
+        "Are you sure? DEBUG_MESSAGE_LEVEL set to debug/trace can generate a high number of popup writes.",
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setMessageLevel(next);
+    await saveRuntimeLevels(next, logLevel);
+  }
+
+  async function onLogLevelChange(next: DebugSeverity) {
+    const previous = logLevel;
+
+    if (shouldConfirmIncrease(previous, next)) {
+      const confirmed = window.confirm(
+        "Are you sure? DEBUG_LOG_LEVEL set to debug/trace can generate a high number of log writes.",
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setLogLevel(next);
+    await saveRuntimeLevels(messageLevel, next);
+  }
+
+  useEffect(() => {
+    if (!token) {
+      setLevelsReady(false);
+      return;
+    }
+
+    if (!levelsReady) {
+      void loadRuntimeLevels();
+    }
+  }, [token, levelsReady]);
 
   return (
     <main className="page">
@@ -171,8 +222,11 @@ export default function AdminPage() {
             DEBUG_MESSAGE_LEVEL
             <select
               value={messageLevel}
-              onChange={(e) => setMessageLevel(e.target.value as DebugSeverity)}
+              onChange={(e) => {
+                void onMessageLevelChange(e.target.value as DebugSeverity);
+              }}
               style={{ marginTop: "0.3rem", width: "100%" }}
+              disabled={levelsBusy || !token}
             >
               {SEVERITIES.map((severity) => (
                 <option key={severity} value={severity}>
@@ -186,8 +240,11 @@ export default function AdminPage() {
             DEBUG_LOG_LEVEL
             <select
               value={logLevel}
-              onChange={(e) => setLogLevel(e.target.value as DebugSeverity)}
+              onChange={(e) => {
+                void onLogLevelChange(e.target.value as DebugSeverity);
+              }}
               style={{ marginTop: "0.3rem", width: "100%" }}
+              disabled={levelsBusy || !token}
             >
               {SEVERITIES.map((severity) => (
                 <option key={severity} value={severity}>
@@ -197,13 +254,7 @@ export default function AdminPage() {
             </select>
           </label>
 
-          <button onClick={() => void loadRuntimeLevels()} disabled={levelsBusy || !token}>
-            {levelsBusy ? "Loading…" : "Load current runtime levels"}
-          </button>
-
-          <button onClick={() => void saveRuntimeLevels()} disabled={levelsBusy || !token}>
-            {levelsBusy ? "Applying…" : "Apply runtime levels now"}
-          </button>
+          {!token ? <p className="muted">Set admin token above to enable live runtime controls.</p> : null}
         </div>
 
         {levelsResult ? (
