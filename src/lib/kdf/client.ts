@@ -1,5 +1,6 @@
 import "server-only";
 
+import { logDebugEvent } from "@/lib/debug/logger";
 import { JsonObject, JsonValue, KdfRpcEnvelope, KdfRpcError } from "@/lib/kdf/types";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -56,6 +57,13 @@ async function doRpcCall<T = JsonValue>(
     envelope.userpass = userpass;
   }
 
+  await logDebugEvent({
+    severity: "trace",
+    title: "KDF RPC request",
+    body: `Sending RPC method=${method}`,
+    details: envelope,
+  });
+
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -69,16 +77,62 @@ async function doRpcCall<T = JsonValue>(
 
     if (!response.ok) {
       const text = await response.text();
+      await logDebugEvent({
+        severity: "error",
+        title: "KDF RPC transport error",
+        body: `HTTP ${response.status} on method=${method}`,
+        details: text,
+      });
       throw new Error(`HTTP ${response.status}: ${text || "no response body"}`);
     }
 
-    const payload = (await response.json()) as JsonObject & KdfRpcError;
+    let payload: JsonObject & KdfRpcError;
+    try {
+      payload = (await response.json()) as JsonObject & KdfRpcError;
+    } catch (error) {
+      await logDebugEvent({
+        severity: "error",
+        title: "KDF RPC parse error",
+        body: `Unable to parse JSON response for method=${method}`,
+        details: parseErrorMessage(error),
+      });
+      throw error;
+    }
+
+    await logDebugEvent({
+      severity: "debug",
+      title: "KDF RPC response",
+      body: `Received RPC method=${method}`,
+      details: payload,
+    });
+
     if (payload.error || payload.error_message) {
+      await logDebugEvent({
+        severity: "error",
+        title: "KDF RPC method error",
+        body: `RPC method=${method} returned error payload`,
+        details: payload,
+      });
       throw new Error(payload.error_message || payload.error || "KDF returned an error");
+    }
+
+    if (!("result" in payload)) {
+      await logDebugEvent({
+        severity: "warning",
+        title: "KDF RPC unexpected shape",
+        body: `RPC method=${method} response has no result field`,
+        details: payload,
+      });
     }
 
     return payload.result as T;
   } catch (error) {
+    await logDebugEvent({
+      severity: "error",
+      title: "KDF RPC exception",
+      body: `Exception during RPC method=${method}`,
+      details: parseErrorMessage(error),
+    });
     throw new Error(parseErrorMessage(error));
   } finally {
     clearTimeout(timeoutId);
@@ -138,6 +192,11 @@ function isMethodNotAvailableError(message: string): boolean {
 async function tryOptionalRpc(methods: string[]): Promise<OptionalRpcResponse> {
   for (const method of methods) {
     if (unsupportedMethodsCache.has(method)) {
+      await logDebugEvent({
+        severity: "debug",
+        title: "Optional RPC skipped",
+        body: `Skipping cached unsupported method=${method}`,
+      });
       continue;
     }
 
@@ -148,8 +207,20 @@ async function tryOptionalRpc(methods: string[]): Promise<OptionalRpcResponse> {
       const message = parseErrorMessage(error);
       if (isMethodNotAvailableError(message)) {
         unsupportedMethodsCache.add(method);
+        await logDebugEvent({
+          severity: "warning",
+          title: "Optional RPC unavailable",
+          body: `Method is not available and was cached as unsupported: ${method}`,
+          details: message,
+        });
         continue;
       }
+      await logDebugEvent({
+        severity: "error",
+        title: "Optional RPC failed",
+        body: `Optional method call failed: ${method}`,
+        details: message,
+      });
       return { available: false, message };
     }
   }
@@ -190,6 +261,13 @@ export async function fetchSimpleMmStatusOptional(): Promise<SimpleMmStatusOptio
     };
   }
 
+  await logDebugEvent({
+    severity: "warning",
+    title: "Simple MM status unexpected shape",
+    body: "Simple MM status RPC returned non-object payload",
+    details: result,
+  });
+
   return {
     available: false,
     message: "Simple MM status RPC returned a non-object payload.",
@@ -227,12 +305,25 @@ export async function fetchOrdersRaw(): Promise<OrderViewRaw[]> {
     }
   }
 
+  await logDebugEvent({
+    severity: "warning",
+    title: "Orders unexpected shape",
+    body: "my_orders returned no recognized order data fields",
+    details: result,
+  });
+
   return [];
 }
 
 export async function fetchWalletsRaw(): Promise<WalletViewRaw[]> {
   const enabledCoins = await doRpcCall<JsonValue>("get_enabled_coins");
   if (!Array.isArray(enabledCoins)) {
+    await logDebugEvent({
+      severity: "warning",
+      title: "Wallets unexpected shape",
+      body: "get_enabled_coins returned non-array payload",
+      details: enabledCoins,
+    });
     return [];
   }
 
@@ -255,8 +346,20 @@ export async function fetchWalletsRaw(): Promise<WalletViewRaw[]> {
             unspendable_balance: balanceResult.unspendable_balance,
           };
         }
+
+        await logDebugEvent({
+          severity: "warning",
+          title: "Wallet balance unexpected shape",
+          body: `my_balance returned non-object result for coin=${ticker}`,
+          details: balanceResult,
+        });
       } catch {
         // Keep lightweight behavior: return base enabled-coins row even if balance request fails.
+        await logDebugEvent({
+          severity: "error",
+          title: "Wallet balance RPC exception",
+          body: `my_balance failed for coin=${ticker}`,
+        });
       }
 
       return row;
@@ -277,6 +380,14 @@ export async function fetchMovementsRaw(): Promise<MovementViewRaw[]> {
       return maybeSwaps.filter((x): x is MovementViewRaw => typeof x === "object" && x !== null);
     }
   }
+
+  await logDebugEvent({
+    severity: "warning",
+    title: "Movements unexpected shape",
+    body: "my_recent_swaps returned no recognized swaps payload",
+    details: result,
+  });
+
   return [];
 }
 

@@ -62,6 +62,9 @@ Open `http://localhost:3000`.
 - `MM2_SYSTEMD_SERVICE` (required if mode is `systemctl`)
 - `MM2_RESTART_SCRIPT` (required if mode is `script`)
 - `NEXT_PUBLIC_POLL_MS` (optional)
+- `DEBUG_MESSAGE_LEVEL` (`critical|error|warning|info|debug|trace`)
+- `DEBUG_LOG_LEVEL` (`critical|error|warning|info|debug|trace`)
+- `LOG_FILE` (debug log file path)
 
 ## Deployment on Linux VM (systemd)
 

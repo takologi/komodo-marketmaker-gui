@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { DebugPopupCenter } from "@/components/debug-popup-center";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,6 +33,7 @@ export default function RootLayout({
               <p>Secure server-side proxy for KDF/MM2 operations.</p>
             </div>
           </header>
+          <DebugPopupCenter />
           {children}
         </div>
       </body>

@@ -246,3 +246,76 @@ pre {
   background: #091126;
   padding: 0.6rem;
 }
+
+.debug-popups {
+  position: fixed;
+  top: 0.9rem;
+  right: 0.9rem;
+  width: min(420px, 88vw);
+  display: grid;
+  gap: 0.6rem;
+  z-index: 1000;
+}
+
+.debug-popup {
+  border: 1px solid var(--border);
+  border-left-width: 5px;
+  border-radius: 10px;
+  background: #0b1327;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  padding: 0.6rem 0.65rem;
+}
+
+.debug-popup header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.debug-popup header button {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.debug-popup pre {
+  margin-top: 0.45rem;
+  max-height: 160px;
+  font-size: 0.82rem;
+}
+
+.debug-popup-meta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
+}
+
+.severity-critical {
+  border-left-color: #ff0033;
+}
+
+.severity-error {
+  border-left-color: #ff5f6d;
+}
+
+.severity-warning {
+  border-left-color: #ffb020;
+}
+
+.severity-info {
+  border-left-color: #43a1ff;
+}
+
+.severity-debug {
+  border-left-color: #55d17e;
+}
+
+.severity-trace {
+  border-left-color: #a389ff;
+}
