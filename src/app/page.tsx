@@ -39,7 +39,7 @@ interface DashboardStatusView {
 
 export default function HomePage() {
   const { data, loading, error, fetchedAt, refresh } = usePolling<DashboardStatusView>(
-    "/api/kdf/status",
+    "/api/kcb/status",
   );
 
   return (

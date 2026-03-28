@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Nav } from "@/components/nav";
 
@@ -54,7 +54,7 @@ export default function AdminPage() {
     }
   }
 
-  async function loadRuntimeLevels() {
+  const loadRuntimeLevels = useCallback(async () => {
     if (!token) {
       setLevelsResult("Admin token required to load runtime levels");
       return;
@@ -83,7 +83,7 @@ export default function AdminPage() {
     } finally {
       setLevelsBusy(false);
     }
-  }
+  }, [token]);
 
   async function saveRuntimeLevels(nextMessageLevel: DebugSeverity, nextLogLevel: DebugSeverity) {
     if (!token) {
@@ -174,7 +174,7 @@ export default function AdminPage() {
     if (!levelsReady) {
       void loadRuntimeLevels();
     }
-  }, [token, levelsReady]);
+  }, [token, levelsReady, loadRuntimeLevels]);
 
   return (
     <main className="page">

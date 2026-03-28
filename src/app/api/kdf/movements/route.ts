@@ -1,30 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { adaptMovements } from "@/lib/kdf/adapters/movements";
-import { fetchMovementsRawWithAvailability } from "@/lib/kdf/client";
+import { getKcbMovements } from "@/lib/kcb/queries";
 import { UiApiResponse } from "@/lib/kdf/types";
-
-interface MovementApiData {
-  rows: ReturnType<typeof adaptMovements>;
-  integration: {
-    available: boolean;
-    method?: string;
-    message?: string;
-  };
-}
 
 export async function GET() {
   const fetchedAt = new Date().toISOString();
   try {
-    const raw = await fetchMovementsRawWithAvailability();
-    const data: MovementApiData = {
-      rows: adaptMovements(raw.rows),
-      integration: {
-        available: raw.available,
-        method: raw.method,
-        message: raw.message,
-      },
-    };
+    const data = await getKcbMovements();
     const body: UiApiResponse<typeof data> = { ok: true, data, fetchedAt };
     return NextResponse.json(body);
   } catch (error) {

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "kcb_log_level": "info",
+  "coins": [
+    {
+      "coin": "DOC",
+      "activation": {
+        "method": "enable",
+        "params": {
+          "tx_history": true
+        },
+        "servers": [
+          {
+            "url": "http://127.0.0.1:10000"
+          }
+        ]
+      }
+    },
+    {
+      "coin": "MARTY",
+      "activation": {
+        "method": "enable",
+        "params": {
+          "tx_history": true
+        },
+        "servers": [
+          {
+            "url": "http://127.0.0.1:10001"
+          }
+        ]
+      }
+    }
+  ],
+  "simple_mm": {
+    "enabled": true,
+    "start_on_apply": true,
+    "start_payload": {
+      "allow_unstable": true
+    }
+  }
+}

@@ -13,13 +13,18 @@ Next.js App Router provides a practical local-ops fit for v1:
 This app follows a strict proxy boundary:
 
 1. Browser requests internal API routes only.
-2. API routes call server-side KDF/MM2 client.
-3. Client sends RPC payloads to configured KDF endpoint.
+2. API routes call server-side KCB services.
+3. KCB services call KDF/MM2 client for reads/writes.
+4. KDF client sends RPC payloads to configured KDF endpoint.
 
 ## Directory map
 
 - `src/lib/kdf/client.ts`
   - Server-only RPC transport and method wrappers.
+- `src/lib/kcb/*`
+  - KCB logical backend (bootstrap config, capability resolution, coin cache, command queue).
+- `src/lib/kcb/commands/service.ts`
+  - Priority queue (`high`, `normal`), serial command execution, retention cleanup.
 - `src/lib/kdf/adapters/*`
   - Maps raw RPC payloads into stable UI view models.
 - `src/lib/system/restart.ts`
@@ -30,10 +35,20 @@ This app follows a strict proxy boundary:
   - Client pages with polling against internal APIs.
 - `src/components/use-polling.ts`
   - Shared polling/data state hook.
+- `deploy/systemd/komodo-marketmaker-gui.service`
+  - Example systemd unit for production VM operation.
+- `deploy/scripts/deploy.sh`
+  - Repeatable VM deployment flow (pull/build/restart).
+- `deploy/scripts/smoke-test.sh`
+  - Operator smoke-test helper for KCB routes/flows.
 
 ## Data flow
 
-`Page` → `fetch('/api/...')` → `Route Handler` → `kdf/client` → `KDF RPC`
+`Page` → `fetch('/api/...')` → `Route Handler` → `kcb/*` → `kdf/client` → `KDF RPC`
+
+For write actions:
+
+`Page` → `POST /api/kcb/commands` → `KCB queue` → `executor` → `KDF/system control`
 
 ## Security posture
 
@@ -58,3 +73,22 @@ Current v1 scope is observability + minimal admin. This structure supports incre
 2. add controlled write actions in `src/lib/system` and `src/app/api`,
 3. keep UI pages consuming only internal API contracts,
 4. optionally add auth/audit trails later without reworking KDF integration boundaries.
+
+## KCB state model
+
+By default KCB stores state under `~/.kcb` (override with `KCB_CONFIG_DIR`) with this layout:
+
+- `config/`
+  - `bootstrap-config.json`
+  - `kdf-capabilities.local.json`
+  - `coin-sources.json`
+- `cache/coins/`
+  - `coins_config.json`
+  - `coins_config.meta.json`
+- `state/`
+  - `commands.json`
+  - `bootstrap-status.json`
+  - `last-apply.json`
+  - `resolved-capabilities.json`
+- `logs/`
+  - reserved for KCB-specific log output (future extension)

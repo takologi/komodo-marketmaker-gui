@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { adaptWallets } from "@/lib/kdf/adapters/wallets";
-import { fetchWalletsRaw } from "@/lib/kdf/client";
+import { getKcbWallets } from "@/lib/kcb/queries";
 import { UiApiResponse } from "@/lib/kdf/types";
 
 export async function GET() {
   const fetchedAt = new Date().toISOString();
   try {
-    const raw = await fetchWalletsRaw();
-    const data = adaptWallets(raw);
+    const data = await getKcbWallets();
     const body: UiApiResponse<typeof data> = { ok: true, data, fetchedAt };
     return NextResponse.json(body);
   } catch (error) {

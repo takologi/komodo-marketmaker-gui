@@ -27,6 +27,13 @@ function getMmrpcVersion(): string | undefined {
 }
 
 function parseErrorMessage(error: unknown): string {
+  if (error && typeof error === "object" && "name" in error) {
+    const name = String((error as { name?: string }).name || "");
+    if (name === "AbortError") {
+      return "KDF RPC request timed out. Check KDF_RPC_URL and KDF responsiveness.";
+    }
+  }
+
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return "Unknown KDF RPC error";
@@ -77,13 +84,17 @@ async function doRpcCall<T = JsonValue>(
 
     if (!response.ok) {
       const text = await response.text();
+      const isAuth = response.status === 401 || response.status === 403;
+      const hint = isAuth
+        ? " (check KDF_RPC_USERPASS / auth settings)"
+        : "";
       await logDebugEvent({
         severity: "error",
         title: "KDF RPC transport error",
         body: `HTTP ${response.status} on method=${method}`,
         details: text,
       });
-      throw new Error(`HTTP ${response.status}: ${text || "no response body"}`);
+      throw new Error(`KDF RPC HTTP ${response.status}${hint}: ${text || "no response body"}`);
     }
 
     let payload: JsonObject & KdfRpcError;
@@ -140,6 +151,21 @@ async function doRpcCall<T = JsonValue>(
 
     return payload as T;
   } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const fetchFailure = /fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|network/i.test(rawMessage);
+    if (fetchFailure) {
+      await logDebugEvent({
+        severity: "error",
+        title: "KDF RPC unreachable",
+        body: `Unable to reach KDF endpoint for method=${method}`,
+        details: {
+          url,
+          message: rawMessage,
+        },
+      });
+      throw new Error(`KDF RPC unreachable at ${url}: ${rawMessage}`);
+    }
+
     await logDebugEvent({
       severity: "error",
       title: "KDF RPC exception",
@@ -150,6 +176,13 @@ async function doRpcCall<T = JsonValue>(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export async function callKdfRpc<T = JsonValue>(
+  method: string,
+  params: JsonObject = {},
+): Promise<T> {
+  return doRpcCall<T>(method, params);
 }
 
 export interface StatusViewRaw {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAuthorizedRestartToken, triggerRestart } from "@/lib/system/restart";
+import { enqueueKcbCommand } from "@/lib/kcb/commands/service";
+import { isAuthorizedRestartToken } from "@/lib/system/restart";
 
 interface RestartResponse {
   ok: boolean;
@@ -19,11 +20,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const output = await triggerRestart();
+    const command = await enqueueKcbCommand({
+      type: "restart_kdf",
+      priority: "high",
+    });
     const body: RestartResponse = {
       ok: true,
-      message: "Restart command submitted successfully",
-      output,
+      message: "Restart command queued successfully",
+      output: `command_id=${command.id}`,
     };
     return NextResponse.json(body);
   } catch (error) {

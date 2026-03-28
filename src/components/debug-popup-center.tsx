@@ -58,6 +58,8 @@ export function DebugPopupCenter() {
 
   useEffect(() => {
     let active = true;
+    const removeTimers = removeTimersRef.current;
+    const autoCloseTimers = autoCloseTimersRef.current;
 
     const fetchMessages = async () => {
       try {
@@ -103,14 +105,14 @@ export function DebugPopupCenter() {
       active = false;
       clearInterval(timer);
 
-      for (const t of removeTimersRef.current.values()) {
+      for (const t of removeTimers.values()) {
         clearTimeout(t);
       }
-      for (const t of autoCloseTimersRef.current.values()) {
+      for (const t of autoCloseTimers.values()) {
         clearTimeout(t);
       }
-      removeTimersRef.current.clear();
-      autoCloseTimersRef.current.clear();
+      removeTimers.clear();
+      autoCloseTimers.clear();
     };
   }, [closeMessage, timeoutSeconds]);
 

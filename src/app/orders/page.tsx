@@ -6,7 +6,7 @@ import { usePolling } from "@/components/use-polling";
 import { OrderView } from "@/lib/kdf/adapters/orders";
 
 export default function OrdersPage() {
-  const { data, loading, error, fetchedAt, refresh } = usePolling<OrderView[]>("/api/kdf/orders");
+  const { data, loading, error, fetchedAt, refresh } = usePolling<OrderView[]>("/api/kcb/orders");
 
   return (
     <main className="page">

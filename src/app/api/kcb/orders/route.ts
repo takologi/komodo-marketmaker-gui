@@ -10,7 +10,7 @@ export async function GET() {
     const body: UiApiResponse<typeof data> = { ok: true, data, fetchedAt };
     return NextResponse.json(body);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load orders";
+    const message = error instanceof Error ? error.message : "Failed to load KCB orders";
     const body: UiApiResponse<never> = { ok: false, message, fetchedAt };
     return NextResponse.json(body, { status: 500 });
   }

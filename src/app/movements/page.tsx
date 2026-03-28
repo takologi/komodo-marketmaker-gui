@@ -16,7 +16,7 @@ interface MovementsData {
 
 export default function MovementsPage() {
   const { data, loading, error, fetchedAt, refresh } = usePolling<MovementsData>(
-    "/api/kdf/movements",
+    "/api/kcb/movements",
   );
 
   return (

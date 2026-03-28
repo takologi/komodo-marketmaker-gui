@@ -6,7 +6,7 @@ import { usePolling } from "@/components/use-polling";
 import { WalletView } from "@/lib/kdf/adapters/wallets";
 
 export default function WalletsPage() {
-  const { data, loading, error, fetchedAt, refresh } = usePolling<WalletView[]>("/api/kdf/wallets");
+  const { data, loading, error, fetchedAt, refresh } = usePolling<WalletView[]>("/api/kcb/wallets");
 
   return (
     <main className="page">

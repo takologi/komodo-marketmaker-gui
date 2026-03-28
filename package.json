@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy:vm": "bash ./deploy/scripts/deploy.sh",
+    "smoke:test": "bash ./deploy/scripts/smoke-test.sh"
   },
   "dependencies": {
     "next": "^16.2.1",
