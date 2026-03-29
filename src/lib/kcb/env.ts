@@ -19,12 +19,12 @@ export function getKcbConfigDir(): string {
 export function getKcbCoinsConfigUrl(): string {
   return (
     process.env.KCB_COINS_CONFIG_URL ||
-    "https://raw.githubusercontent.com/KomodoPlatform/coins/master/coins"
+    "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/utils/coins_config.json"
   );
 }
 
 export function getKcbIconsBaseUrl(): string {
-  return process.env.KCB_ICONS_BASE_URL || "https://raw.githubusercontent.com/KomodoPlatform/coins/master/icons";
+  return process.env.KCB_ICONS_BASE_URL || "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/icons";
 }
 
 export function getKcbHttpTimeoutMs(): number {

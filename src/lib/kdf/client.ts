@@ -1,6 +1,7 @@
 import "server-only";
 
 import { logDebugEvent } from "@/lib/debug/logger";
+import { DEFAULT_KDF_RPC_METHOD_SPEC, KDF_RPC_METHOD_SPECS } from "@/lib/kdf/rpc-methods";
 import { JsonObject, JsonValue, KdfRpcEnvelope, KdfRpcError } from "@/lib/kdf/types";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -18,12 +19,6 @@ function getTimeoutMs(): number {
   const raw = process.env.KDF_RPC_TIMEOUT_MS;
   const parsed = raw ? Number.parseInt(raw, 10) : DEFAULT_TIMEOUT_MS;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
-}
-
-function getMmrpcVersion(): string | undefined {
-  const version = process.env.KDF_RPC_MMRPC_VERSION;
-  if (!version) return undefined;
-  return version.trim() || undefined;
 }
 
 function parseErrorMessage(error: unknown): string {
@@ -45,7 +40,10 @@ async function doRpcCall<T = JsonValue>(
 ): Promise<T> {
   const url = getRequiredEnv("KDF_RPC_URL");
   const userpass = process.env.KDF_RPC_USERPASS;
-  const mmrpc = getMmrpcVersion();
+  const spec = KDF_RPC_METHOD_SPECS[method] || {
+    ...DEFAULT_KDF_RPC_METHOD_SPEC,
+    method,
+  };
   const timeoutMs = getTimeoutMs();
 
   const controller = new AbortController();
@@ -56,8 +54,20 @@ async function doRpcCall<T = JsonValue>(
     ...params,
   };
 
-  if (mmrpc) {
-    envelope.mmrpc = mmrpc;
+  if (spec.requiresPayload && Object.keys(params).length === 0) {
+    await logDebugEvent({
+      severity: "warning",
+      title: "KDF RPC payload warning",
+      body: `Method marked as payload-required was called without params: ${method}`,
+      details: {
+        apiVersion: spec.apiVersion,
+        description: spec.description,
+      },
+    });
+  }
+
+  if (spec.apiVersion === "2.0") {
+    envelope.mmrpc = "2.0";
   }
 
   if (userpass) {
@@ -68,7 +78,11 @@ async function doRpcCall<T = JsonValue>(
     severity: "trace",
     title: "KDF RPC request",
     body: `Sending RPC method=${method}`,
-    details: envelope,
+    details: {
+      ...envelope,
+      apiVersion: spec.apiVersion,
+      description: spec.description,
+    },
   });
 
   try {

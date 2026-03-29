@@ -24,9 +24,9 @@ async function readCoinSources(): Promise<CoinSourceConfig> {
   } catch (error) {
     const fallback: CoinSourceConfig = {
       coins_config_url: process.env.KCB_COINS_CONFIG_URL ||
-        "https://raw.githubusercontent.com/KomodoPlatform/coins/master/coins",
+        "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/utils/coins_config.json",
       icons_base_url: process.env.KCB_ICONS_BASE_URL ||
-        "https://raw.githubusercontent.com/KomodoPlatform/coins/master/icons",
+        "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/icons",
     };
 
     const backup = `${kcbPaths.coinSources()}.corrupt.${Date.now()}`;

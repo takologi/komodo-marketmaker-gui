@@ -68,13 +68,13 @@ KCB-native routes:
 - If RPC methods differ in your deployment, adjust method names in `src/lib/kdf/client.ts`.
 - Movements endpoint is intentionally honest: it reports when backend movement RPC is unavailable,
   instead of faking transfer history data.
+- RPC API version routing is configured per method in `src/lib/kdf/rpc-methods.ts`.
 
 ## Environment variables
 
 - `KDF_RPC_URL` (required)
 - `KDF_RPC_USERPASS` (optional, server-side only)
 - `KDF_RPC_TIMEOUT_MS` (optional)
-- `KDF_RPC_MMRPC_VERSION` (optional; leave empty for legacy-compatible methods)
 - `KCB_CONFIG_DIR` (optional; default `~/.kcb`)
 - `KCB_COINS_CONFIG_URL` (optional)
 - `KCB_ICONS_BASE_URL` (optional)

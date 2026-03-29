@@ -33,7 +33,6 @@ Key variables for operations:
 - `KDF_RPC_URL` (required)
 - `KDF_RPC_USERPASS` (optional)
 - `KDF_RPC_TIMEOUT_MS` (optional)
-- `KDF_RPC_MMRPC_VERSION` (optional)
 - `KCB_CONFIG_DIR` (optional, default `~/.kcb`)
 - `KCB_COINS_CONFIG_URL` (optional)
 - `KCB_ICONS_BASE_URL` (optional)
@@ -154,6 +153,7 @@ Observe queue and statuses:
 - Coin source failures: refresh error logs source URL + message
 - Invalid/missing KCB config JSON: file is recovered where practical and warning/error is logged
 - Command failures: command status set to `failed`, `finished_at` populated, `error_message` stored
+- RPC API version mapping is controlled by `src/lib/kdf/rpc-methods.ts` per method.
 
 ## Known limitations
 
