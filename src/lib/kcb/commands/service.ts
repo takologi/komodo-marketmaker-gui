@@ -283,3 +283,70 @@ export async function getKcbCommandById(id: string): Promise<KcbCommandRecord | 
   const commands = await listKcbCommands();
   return commands.find((command) => command.id === id) || null;
 }
+
+interface StartupBootstrapEnqueueResult {
+  queued: boolean;
+  commandId?: string;
+  reason?: string;
+}
+
+export async function enqueueBootstrapApplyOnStartup(): Promise<StartupBootstrapEnqueueResult> {
+  ensureCleanupJobStarted();
+
+  const result = await withStoreLock(async () => {
+    const store = await loadStore();
+
+    const existing = store.commands.find(
+      (cmd) => cmd.type === "apply_bootstrap" && (cmd.status === "queued" || cmd.status === "running"),
+    );
+
+    if (existing) {
+      return {
+        queued: false,
+        commandId: existing.id,
+        reason: `existing apply_bootstrap command is already ${existing.status}`,
+      };
+    }
+
+    const now = new Date().toISOString();
+    const next: KcbCommandRecord = {
+      id: randomUUID(),
+      type: "apply_bootstrap",
+      priority: "high",
+      status: "queued",
+      created_at: now,
+      finished_at: null,
+    };
+
+    store.commands.push(next);
+    store.commands = cleanupRetention(store.commands);
+    store.queue.unshift(next.id);
+    await saveStore(store);
+
+    return {
+      queued: true,
+      commandId: next.id,
+    };
+  });
+
+  if (result.queued) {
+    await logDebugEvent({
+      severity: "info",
+      title: "KCB startup bootstrap queued",
+      body: "Queued apply_bootstrap automatically on server startup",
+      details: {
+        id: result.commandId,
+      },
+    });
+    startRunner();
+  } else {
+    await logDebugEvent({
+      severity: "debug",
+      title: "KCB startup bootstrap skipped",
+      body: "Skipped auto-queue because apply_bootstrap is already queued/running",
+      details: result,
+    });
+  }
+
+  return result;
+}

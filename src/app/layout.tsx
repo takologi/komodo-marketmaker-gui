@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { DebugPopupCenter } from "@/components/debug-popup-center";
+import { ensureKcbStartupInitialized } from "@/lib/kcb/startup";
 import "./globals.css";
+
+ensureKcbStartupInitialized();
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
