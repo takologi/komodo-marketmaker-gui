@@ -9,10 +9,73 @@ import { kcbPaths } from "@/lib/kcb/paths";
 import { ensureKcbLayout, readJsonFile, writeJsonFile } from "@/lib/kcb/storage";
 import {
   BootstrapConfig,
+  BootstrapCoinConfig,
   BootstrapStatusState,
   LastApplyState,
 } from "@/lib/kcb/types";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
+
+function findCoinDefinition(coinDefinitions: JsonValue, ticker: string): JsonObject | null {
+  const norm = ticker.toUpperCase();
+
+  if (Array.isArray(coinDefinitions)) {
+    for (const item of coinDefinitions) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const candidate = item as JsonObject;
+      const coin = typeof candidate.coin === "string" ? candidate.coin.toUpperCase() : "";
+      if (coin === norm) return candidate;
+    }
+    return null;
+  }
+
+  if (!coinDefinitions || typeof coinDefinitions !== "object") return null;
+
+  const table = coinDefinitions as JsonObject;
+  const direct = table[norm];
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) {
+    return direct as JsonObject;
+  }
+
+  for (const value of Object.values(table)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const candidate = value as JsonObject;
+    const coin = typeof candidate.coin === "string" ? candidate.coin.toUpperCase() : "";
+    if (coin === norm) return candidate;
+  }
+
+  return null;
+}
+
+function serversFromCoinDefinition(coinDef: JsonObject | null): JsonValue[] | null {
+  if (!coinDef) return null;
+  const electrum = coinDef.electrum;
+  if (!Array.isArray(electrum)) return null;
+
+  const servers: JsonValue[] = [];
+  for (const node of electrum) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) continue;
+    const entry = node as JsonObject;
+    if (typeof entry.url !== "string" || !entry.url) continue;
+    servers.push({ url: entry.url });
+  }
+
+  return servers.length > 0 ? servers : null;
+}
+
+function resolveActivationServers(coinCfg: BootstrapCoinConfig, coinDefinitions: JsonValue): JsonValue[] | null {
+  const activationServers = coinCfg.activation?.servers;
+  if (Array.isArray(activationServers) && activationServers.length > 0) {
+    return activationServers as unknown as JsonValue[];
+  }
+
+  const paramsServers = coinCfg.activation?.params?.servers;
+  if (Array.isArray(paramsServers) && paramsServers.length > 0) {
+    return paramsServers as JsonValue[];
+  }
+
+  const coinDef = findCoinDefinition(coinDefinitions, coinCfg.coin);
+  return serversFromCoinDefinition(coinDef);
+}
 
 function defaultBootstrapConfig(): BootstrapConfig {
   return {
@@ -76,14 +139,6 @@ export function validateBootstrapConfig(config: BootstrapConfig): string[] {
     const methodNeedsServers = method === "enable" || method === "electrum";
     const activationServers = coin.activation?.servers;
     const paramsServers = coin.activation?.params?.servers;
-    const hasActivationServers = Array.isArray(activationServers);
-    const hasParamServers = Array.isArray(paramsServers);
-
-    if (methodNeedsServers && !hasActivationServers && !hasParamServers) {
-      errors.push(
-        `coin ${coin.coin || "unknown"} (${coin.activation.method}) must define activation.servers as a non-empty array`,
-      );
-    }
 
     if (activationServers !== undefined && !Array.isArray(activationServers)) {
       errors.push(`coin ${coin.coin || "unknown"} activation.servers must be an array when provided`);
@@ -91,6 +146,14 @@ export function validateBootstrapConfig(config: BootstrapConfig): string[] {
 
     if (paramsServers !== undefined && !Array.isArray(paramsServers)) {
       errors.push(`coin ${coin.coin || "unknown"} activation.params.servers must be an array when provided`);
+    }
+
+    if (methodNeedsServers && Array.isArray(activationServers) && activationServers.length === 0) {
+      errors.push(`coin ${coin.coin || "unknown"} activation.servers must not be empty when provided`);
+    }
+
+    if (methodNeedsServers && Array.isArray(paramsServers) && paramsServers.length === 0) {
+      errors.push(`coin ${coin.coin || "unknown"} activation.params.servers must not be empty when provided`);
     }
   }
 
@@ -153,18 +216,27 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
   const applyErrors: string[] = [];
 
   try {
-    await getCoinDefinitions();
+    const coinDefinitions = await getCoinDefinitions();
 
     for (const coinCfg of cfg.coins) {
       summary.coin_activation_attempts = ((summary.coin_activation_attempts as number) || 0) + 1;
 
       const activationParams = { ...(coinCfg.activation.params || {}) } as JsonObject;
-      if (coinCfg.activation.servers) {
-        activationParams.servers = coinCfg.activation.servers as unknown as JsonValue;
+      const method = (coinCfg.activation.method || "").toLowerCase();
+      const methodNeedsServers = method === "enable" || method === "electrum";
+      const resolvedServers = resolveActivationServers(coinCfg, coinDefinitions);
+
+      if (resolvedServers) {
+        activationParams.servers = resolvedServers;
+      } else {
+        delete activationParams.servers;
       }
 
-      if (!Array.isArray(activationParams.servers)) {
-        delete activationParams.servers;
+      if (methodNeedsServers && !Array.isArray(activationParams.servers)) {
+        applyErrors.push(
+          `activation failed for ${coinCfg.coin}: no activation servers found in bootstrap config or coins_config.json`,
+        );
+        continue;
       }
 
       try {
