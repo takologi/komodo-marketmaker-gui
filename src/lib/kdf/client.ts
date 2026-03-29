@@ -51,7 +51,6 @@ async function doRpcCall<T = JsonValue>(
 
   const envelope: KdfRpcEnvelope = {
     method,
-    ...params,
   };
 
   if (spec.requiresPayload && Object.keys(params).length === 0) {
@@ -68,6 +67,9 @@ async function doRpcCall<T = JsonValue>(
 
   if (spec.apiVersion === "2.0") {
     envelope.mmrpc = "2.0";
+    envelope.params = params;
+  } else {
+    Object.assign(envelope, params);
   }
 
   if (userpass) {

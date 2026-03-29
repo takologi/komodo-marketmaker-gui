@@ -71,6 +71,34 @@ export function validateBootstrapConfig(config: BootstrapConfig): string[] {
     if (!coin.activation?.method) {
       errors.push(`coin ${coin.coin || "unknown"} must define activation.method`);
     }
+
+    const method = (coin.activation?.method || "").toLowerCase();
+    const methodNeedsServers = method === "enable" || method === "electrum";
+    const activationServers = coin.activation?.servers;
+    const paramsServers = coin.activation?.params?.servers;
+    const hasActivationServers = Array.isArray(activationServers);
+    const hasParamServers = Array.isArray(paramsServers);
+
+    if (methodNeedsServers && !hasActivationServers && !hasParamServers) {
+      errors.push(
+        `coin ${coin.coin || "unknown"} (${coin.activation.method}) must define activation.servers as a non-empty array`,
+      );
+    }
+
+    if (activationServers !== undefined && !Array.isArray(activationServers)) {
+      errors.push(`coin ${coin.coin || "unknown"} activation.servers must be an array when provided`);
+    }
+
+    if (paramsServers !== undefined && !Array.isArray(paramsServers)) {
+      errors.push(`coin ${coin.coin || "unknown"} activation.params.servers must be an array when provided`);
+    }
+  }
+
+  if (config.simple_mm.enabled && config.simple_mm.start_on_apply) {
+    const payload = config.simple_mm.start_payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      errors.push("simple_mm.start_payload must be an object when simple_mm.start_on_apply is true");
+    }
   }
 
   return errors;
@@ -133,6 +161,10 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
       const activationParams = { ...(coinCfg.activation.params || {}) } as JsonObject;
       if (coinCfg.activation.servers) {
         activationParams.servers = coinCfg.activation.servers as unknown as JsonValue;
+      }
+
+      if (!Array.isArray(activationParams.servers)) {
+        delete activationParams.servers;
       }
 
       try {
