@@ -3,7 +3,7 @@ import "server-only";
 import { rename } from "node:fs/promises";
 
 import { logDebugEvent } from "@/lib/debug/logger";
-import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
+import { getCoinDefinitions, refreshCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { activateCoin, startSimpleMmIfNeeded } from "@/lib/kcb/kdf-control";
 import { kcbPaths } from "@/lib/kcb/paths";
 import { ensureKcbLayout, readJsonFile, writeJsonFile } from "@/lib/kcb/storage";
@@ -18,6 +18,64 @@ import { JsonObject, JsonValue } from "@/lib/kdf/types";
 interface ResolvedServers {
   servers: JsonValue[] | null;
   source: "activation.servers" | "activation.params.servers" | "coins_config.electrum" | "none";
+  diagnostics: JsonObject;
+}
+
+function objectKeysLimited(value: JsonObject, max = 40): string[] {
+  return Object.keys(value).slice(0, max);
+}
+
+function summarizeCoinDefinition(coinDef: JsonObject | null): JsonObject {
+  if (!coinDef) {
+    return {
+      found: false,
+    };
+  }
+
+  const electrum = coinDef.electrum;
+  const electrumIsArray = Array.isArray(electrum);
+  const electrumEntries = electrumIsArray ? electrum.length : 0;
+  const sampleUrls = electrumIsArray
+    ? electrum
+      .filter((node): node is JsonObject => Boolean(node && typeof node === "object" && !Array.isArray(node)))
+      .map((node) => (typeof node.url === "string" ? node.url : ""))
+      .filter(Boolean)
+      .slice(0, 5)
+    : [];
+
+  return {
+    found: true,
+    keys: objectKeysLimited(coinDef),
+    hasCoinField: typeof coinDef.coin === "string",
+    hasElectrumField: Object.prototype.hasOwnProperty.call(coinDef, "electrum"),
+    electrumType: Array.isArray(electrum) ? "array" : typeof electrum,
+    electrumEntries,
+    sampleUrls,
+  };
+}
+
+function summarizeCoinDefinitionsRoot(coinDefinitions: JsonValue): JsonObject {
+  if (Array.isArray(coinDefinitions)) {
+    return {
+      rootType: "array",
+      rootLength: coinDefinitions.length,
+    };
+  }
+
+  if (coinDefinitions && typeof coinDefinitions === "object") {
+    const obj = coinDefinitions as JsonObject;
+    const coinsNode = obj.coins;
+    return {
+      rootType: "object",
+      rootKeys: objectKeysLimited(obj),
+      hasCoinsArray: Array.isArray(coinsNode),
+      coinsArrayLength: Array.isArray(coinsNode) ? coinsNode.length : 0,
+    };
+  }
+
+  return {
+    rootType: typeof coinDefinitions,
+  };
 }
 
 function findCoinDefinition(coinDefinitions: JsonValue, ticker: string): JsonObject | null {
@@ -79,6 +137,10 @@ function resolveActivationServers(coinCfg: BootstrapCoinConfig, coinDefinitions:
     return {
       servers: activationServers as unknown as JsonValue[],
       source: "activation.servers",
+      diagnostics: {
+        resolution: "used activation.servers from bootstrap",
+        bootstrapServersCount: activationServers.length,
+      },
     };
   }
 
@@ -87,21 +149,35 @@ function resolveActivationServers(coinCfg: BootstrapCoinConfig, coinDefinitions:
     return {
       servers: paramsServers as JsonValue[],
       source: "activation.params.servers",
+      diagnostics: {
+        resolution: "used activation.params.servers from bootstrap",
+        paramsServersCount: paramsServers.length,
+      },
     };
   }
 
   const coinDef = findCoinDefinition(coinDefinitions, coinCfg.coin);
+  const coinDefSummary = summarizeCoinDefinition(coinDef);
   const coinConfigServers = serversFromCoinDefinition(coinDef);
   if (coinConfigServers) {
     return {
       servers: coinConfigServers,
       source: "coins_config.electrum",
+      diagnostics: {
+        resolution: "used coin definition electrum servers",
+        coinDefinition: coinDefSummary,
+        resolvedServersCount: coinConfigServers.length,
+      },
     };
   }
 
   return {
     servers: null,
     source: "none",
+    diagnostics: {
+      resolution: "no servers found in bootstrap or coin definitions",
+      coinDefinition: coinDefSummary,
+    },
   };
 }
 
@@ -330,7 +406,8 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
   const applyErrors: string[] = [];
 
   try {
-    const coinDefinitions = await getCoinDefinitions();
+    let coinDefinitions = await getCoinDefinitions();
+    let refreshedCoinDefinitionsOnServerMiss = false;
 
     await logDebugEvent({
       severity: "debug",
@@ -338,8 +415,15 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
       body: "Loaded coins_config cache for activation fallback",
       details: {
         cachePath: kcbPaths.coinsConfigCache(),
-        topLevelType: Array.isArray(coinDefinitions) ? "array" : typeof coinDefinitions,
+        ...summarizeCoinDefinitionsRoot(coinDefinitions),
       },
+    });
+
+    await logDebugEvent({
+      severity: "trace",
+      title: "KCB bootstrap coin definitions snapshot",
+      body: "coins_config root snapshot used for activation resolution",
+      details: summarizeCoinDefinitionsRoot(coinDefinitions),
     });
 
     for (const coinCfg of cfg.coins) {
@@ -348,7 +432,42 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
       const activationParams = { ...(coinCfg.activation.params || {}) } as JsonObject;
       const method = (coinCfg.activation.method || "").toLowerCase();
       const methodNeedsServers = method === "enable" || method === "electrum";
-      const resolvedServers = resolveActivationServers(coinCfg, coinDefinitions);
+      let resolvedServers = resolveActivationServers(coinCfg, coinDefinitions);
+
+      if (methodNeedsServers && !resolvedServers.servers && !refreshedCoinDefinitionsOnServerMiss) {
+        refreshedCoinDefinitionsOnServerMiss = true;
+
+        await logDebugEvent({
+          severity: "warning",
+          title: "KCB activation servers unresolved",
+          body: `No activation servers resolved for ${coinCfg.coin}; forcing coins_config refresh and retrying`,
+          details: {
+            coin: coinCfg.coin,
+            method: coinCfg.activation.method,
+            initialSource: resolvedServers.source,
+            initialDiagnostics: resolvedServers.diagnostics,
+            cachePath: kcbPaths.coinsConfigCache(),
+          },
+        });
+
+        await refreshCoinDefinitions();
+        coinDefinitions = await getCoinDefinitions();
+        resolvedServers = resolveActivationServers(coinCfg, coinDefinitions);
+
+        await logDebugEvent({
+          severity: "debug",
+          title: "KCB activation servers retry result",
+          body: `Retried activation server resolution for ${coinCfg.coin}`,
+          details: {
+            coin: coinCfg.coin,
+            method: coinCfg.activation.method,
+            retriedSource: resolvedServers.source,
+            serversCount: resolvedServers.servers?.length || 0,
+            retriedDiagnostics: resolvedServers.diagnostics,
+            coinDefinitionsRoot: summarizeCoinDefinitionsRoot(coinDefinitions),
+          },
+        });
+      }
 
       if (resolvedServers.servers) {
         activationParams.servers = resolvedServers.servers;
@@ -366,6 +485,7 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
           methodNeedsServers,
           serversSource: resolvedServers.source,
           serversCount: Array.isArray(activationParams.servers) ? activationParams.servers.length : 0,
+          resolutionDiagnostics: resolvedServers.diagnostics,
         },
       });
 
