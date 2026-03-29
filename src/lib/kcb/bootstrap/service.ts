@@ -22,33 +22,39 @@ interface ResolvedServers {
 
 function findCoinDefinition(coinDefinitions: JsonValue, ticker: string): JsonObject | null {
   const norm = ticker.toUpperCase();
+  const visited = new Set<JsonValue>();
 
-  if (Array.isArray(coinDefinitions)) {
-    for (const item of coinDefinitions) {
-      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-      const candidate = item as JsonObject;
-      const coin = typeof candidate.coin === "string" ? candidate.coin.toUpperCase() : "";
-      if (coin === norm) return candidate;
+  function visit(node: JsonValue): JsonObject | null {
+    if (!node || typeof node !== "object") return null;
+    if (visited.has(node)) return null;
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = visit(item);
+        if (found) return found;
+      }
+      return null;
     }
+
+    const obj = node as JsonObject;
+    const coin = typeof obj.coin === "string" ? obj.coin.toUpperCase() : "";
+    if (coin === norm) return obj;
+
+    const direct = obj[norm];
+    if (direct && typeof direct === "object" && !Array.isArray(direct)) {
+      return direct as JsonObject;
+    }
+
+    for (const value of Object.values(obj)) {
+      const found = visit(value);
+      if (found) return found;
+    }
+
     return null;
   }
 
-  if (!coinDefinitions || typeof coinDefinitions !== "object") return null;
-
-  const table = coinDefinitions as JsonObject;
-  const direct = table[norm];
-  if (direct && typeof direct === "object" && !Array.isArray(direct)) {
-    return direct as JsonObject;
-  }
-
-  for (const value of Object.values(table)) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const candidate = value as JsonObject;
-    const coin = typeof candidate.coin === "string" ? candidate.coin.toUpperCase() : "";
-    if (coin === norm) return candidate;
-  }
-
-  return null;
+  return visit(coinDefinitions);
 }
 
 function serversFromCoinDefinition(coinDef: JsonObject | null): JsonValue[] | null {
@@ -385,8 +391,14 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
         await activateCoin(coinCfg.coin, coinCfg.activation.method, activationParams);
         summary.coin_activation_success = ((summary.coin_activation_success as number) || 0) + 1;
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const enableWithServers = method === "enable" && Array.isArray(activationParams.servers);
+        const nativeWalletConfigMissing = /native wallet configuration/i.test(errorMessage);
+        const hint = enableWithServers && nativeWalletConfigMissing
+          ? " Hint: this looks like a native daemon activation path; try activation.method='electrum' for Electrum-based activation."
+          : "";
         applyErrors.push(
-          `activation failed for ${coinCfg.coin}: ${error instanceof Error ? error.message : String(error)}`,
+          `activation failed for ${coinCfg.coin}: ${errorMessage}${hint}`,
         );
       }
     }

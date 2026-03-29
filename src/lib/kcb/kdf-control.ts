@@ -28,7 +28,7 @@ export async function activateCoin(
 export async function startSimpleMmIfNeeded(startPayload?: JsonObject): Promise<JsonValue | null> {
   const status = await fetchSimpleMmStatusOptional();
   if (status.available && status.raw) {
-    const state = String(status.raw.state ?? status.raw.status ?? "").toLowerCase();
+    const state = String(status.raw.bot_state ?? status.raw.state ?? status.raw.status ?? "").toLowerCase();
     if (["running", "active", "ok"].includes(state)) {
       await logDebugEvent({
         severity: "debug",
@@ -40,7 +40,21 @@ export async function startSimpleMmIfNeeded(startPayload?: JsonObject): Promise<
   }
 
   const params = startPayload ?? {};
-  return callKdfRpc<JsonValue>("start_simple_market_maker_bot", params);
+  try {
+    return await callKdfRpc<JsonValue>("start_simple_market_maker_bot", params);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already\s*started/i.test(message)) {
+      await logDebugEvent({
+        severity: "debug",
+        title: "KCB simple MM already started",
+        body: "start_simple_market_maker_bot returned AlreadyStarted; treating as idempotent success",
+        details: { message },
+      });
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function restartKdfViaSystem(): Promise<string> {

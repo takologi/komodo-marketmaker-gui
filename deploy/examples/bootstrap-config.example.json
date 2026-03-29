@@ -5,7 +5,7 @@
     {
       "coin": "DOC",
       "activation": {
-        "method": "enable",
+        "method": "electrum",
         "params": {
           "tx_history": true
         },
@@ -19,7 +19,7 @@
     {
       "coin": "MARTY",
       "activation": {
-        "method": "enable",
+        "method": "electrum",
         "params": {
           "tx_history": true
         },
@@ -35,7 +35,22 @@
     "enabled": true,
     "start_on_apply": true,
     "start_payload": {
-      "allow_unstable": true
+      "cfg": {
+        "DOC/MARTY": {
+          "base": "DOC",
+          "rel": "MARTY",
+          "max": true,
+          "min_volume": {
+            "percentage": "0.25"
+          },
+          "spread": "1.01",
+          "base_confs": 1,
+          "base_nota": false,
+          "rel_confs": 1,
+          "rel_nota": false,
+          "enable": true
+        }
+      }
     }
   }
 }
