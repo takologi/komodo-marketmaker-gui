@@ -187,6 +187,10 @@ async function runQueue(): Promise<void> {
         body: `Command completed: ${cmd.type}`,
         details: { id: cmd.id, finished_at: finishedAt, summary },
       });
+
+      if (cmd.type === "restart_kdf") {
+        await enqueueBootstrapApplyIfNeeded("restart_kdf");
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const finishedAt = new Date().toISOString();
@@ -284,13 +288,13 @@ export async function getKcbCommandById(id: string): Promise<KcbCommandRecord | 
   return commands.find((command) => command.id === id) || null;
 }
 
-interface StartupBootstrapEnqueueResult {
+interface BootstrapEnqueueResult {
   queued: boolean;
   commandId?: string;
   reason?: string;
 }
 
-export async function enqueueBootstrapApplyOnStartup(): Promise<StartupBootstrapEnqueueResult> {
+async function enqueueBootstrapApplyIfNeeded(source: "startup" | "restart_kdf"): Promise<BootstrapEnqueueResult> {
   ensureCleanupJobStarted();
 
   const result = await withStoreLock(async () => {
@@ -332,21 +336,29 @@ export async function enqueueBootstrapApplyOnStartup(): Promise<StartupBootstrap
   if (result.queued) {
     await logDebugEvent({
       severity: "info",
-      title: "KCB startup bootstrap queued",
-      body: "Queued apply_bootstrap automatically on server startup",
+      title: "KCB bootstrap queued",
+      body: "Queued apply_bootstrap automatically",
       details: {
         id: result.commandId,
+        source,
       },
     });
     startRunner();
   } else {
     await logDebugEvent({
       severity: "debug",
-      title: "KCB startup bootstrap skipped",
+      title: "KCB bootstrap queue skipped",
       body: "Skipped auto-queue because apply_bootstrap is already queued/running",
-      details: result,
+      details: {
+        ...result,
+        source,
+      },
     });
   }
 
   return result;
+}
+
+export async function enqueueBootstrapApplyOnStartup(): Promise<BootstrapEnqueueResult> {
+  return enqueueBootstrapApplyIfNeeded("startup");
 }
