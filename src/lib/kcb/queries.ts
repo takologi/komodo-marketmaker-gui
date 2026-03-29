@@ -26,6 +26,7 @@ export interface KcbDashboardStatusView {
     available: boolean;
     status?: ReturnType<typeof adaptStatus>;
     message?: string;
+    orderHint?: string;
   };
   refreshRateMs: number;
   configuredPairs: string[];
@@ -57,6 +58,23 @@ function parseConfiguredPairs(raw: StatusViewRaw, statusPair: string): string[] 
   return [];
 }
 
+function buildSimpleMmOrderHint(params: {
+  available: boolean;
+  status?: ReturnType<typeof adaptStatus>;
+  activeOrderCount: number;
+}): string | undefined {
+  if (!params.available || !params.status) return undefined;
+
+  const state = params.status.state.toLowerCase();
+  const running = ["running", "active", "ok"].includes(state);
+  const enabledPairCount = params.status.enabledPairs.length;
+  if (running && enabledPairCount > 0 && params.activeOrderCount === 0) {
+    return "Simple MM is running but no active orders were created yet (common causes: unavailable provider price, zero balance, or pair min-volume/min-price constraints).";
+  }
+
+  return undefined;
+}
+
 function emptyStatusRaw(): StatusViewRaw {
   return {
     state: "unavailable",
@@ -81,10 +99,13 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
 
   const orders = adaptOrders(rawOrders);
   const activeOrderUuids = orders.map((order) => order.id);
-  const configuredPairs = parseConfiguredPairs(
-    rawStatusOptional.raw ?? emptyStatusRaw(),
-    simpleMmStatus?.pair ?? "not configured",
-  );
+  const configuredPairs =
+    simpleMmStatus && simpleMmStatus.configuredPairs.length > 0
+      ? simpleMmStatus.configuredPairs
+      : parseConfiguredPairs(
+        rawStatusOptional.raw ?? emptyStatusRaw(),
+        simpleMmStatus?.pair ?? "not configured",
+      );
 
   const activePairsSet = new Set(orders.map((order) => `${order.base}/${order.rel}`.toUpperCase()));
   const normalizedConfiguredPairs = configuredPairs.map((pair) => pair.toUpperCase());
@@ -94,6 +115,12 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     hasActiveOrders: activePairsSet.has(pair),
   }));
 
+  const orderHint = buildSimpleMmOrderHint({
+    available: rawStatusOptional.available,
+    status: simpleMmStatus,
+    activeOrderCount: orders.length,
+  });
+
   return {
     connectionOk: true,
     connectionMessage: "KCB connected to KDF RPC adapter",
@@ -101,6 +128,7 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
       available: rawStatusOptional.available,
       status: simpleMmStatus,
       message: rawStatusOptional.message,
+      orderHint,
     },
     refreshRateMs: Number.parseInt(process.env.NEXT_PUBLIC_POLL_MS ?? "5000", 10) || 5000,
     configuredPairs: normalizedConfiguredPairs,

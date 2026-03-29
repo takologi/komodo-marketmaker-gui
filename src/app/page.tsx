@@ -20,8 +20,12 @@ interface DashboardStatusView {
       runningSeconds: number;
       strategy: string;
       pair: string;
+      configuredPairs: string[];
+      enabledPairs: string[];
+      activeOrderPairs: string[];
     };
     message?: string;
+    orderHint?: string;
   };
   refreshRateMs: number;
   configuredPairs: string[];
@@ -113,8 +117,16 @@ export default function HomePage() {
               <p>Pair: {data.simpleMm.status?.pair ?? "not configured"}</p>
               <p>Strategy: {data.simpleMm.status?.strategy ?? "simple-mm"}</p>
               <p>Uptime: {data.simpleMm.status?.runningSeconds ?? 0}s</p>
+              <p className="muted" style={{ marginTop: "0.45rem" }}>
+                Configured pairs: {data.simpleMm.status?.configuredPairs.join(", ") || "none"}
+              </p>
             </div>
           </div>
+        ) : null}
+        {data?.simpleMm.orderHint ? (
+          <p className="muted" style={{ marginTop: "0.55rem" }}>
+            {data.simpleMm.orderHint}
+          </p>
         ) : null}
       </section>
 
