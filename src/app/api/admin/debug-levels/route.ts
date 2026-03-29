@@ -11,6 +11,7 @@ interface DebugLevelsResponse {
   data?: {
     messageLevel: string;
     logLevel: string;
+    logWindowEnabled: boolean;
     allowed: readonly string[];
   };
 }
@@ -50,11 +51,13 @@ export async function POST(request: NextRequest) {
   const json = (await request.json()) as {
     messageLevel?: string;
     logLevel?: string;
+    logWindowEnabled?: boolean;
   };
 
   const updated = setRuntimeDebugLevels({
     messageLevel: json.messageLevel,
     logLevel: json.logLevel,
+    logWindowEnabled: json.logWindowEnabled,
   });
 
   await logDebugEvent({

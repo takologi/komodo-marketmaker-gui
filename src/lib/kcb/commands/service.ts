@@ -10,7 +10,7 @@ import { restartKdfViaSystem } from "@/lib/kcb/kdf-control";
 import { kcbPaths } from "@/lib/kcb/paths";
 import { ensureKcbLayout, readJsonFile, writeJsonFile } from "@/lib/kcb/storage";
 import { CommandPriority, KcbCommandRecord } from "@/lib/kcb/types";
-import { logDebugEvent } from "@/lib/debug/logger";
+import { logDebugEvent, pushPopupNotification } from "@/lib/debug/logger";
 import { JsonObject } from "@/lib/kdf/types";
 
 type KcbCommandType = "restart_kdf" | "apply_bootstrap" | "refresh_coins";
@@ -111,6 +111,105 @@ function cleanupRetention(records: KcbCommandRecord[]): KcbCommandRecord[] {
   });
 }
 
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function notifyCommandSuccess(type: KcbCommandType, summary: JsonObject): void {
+  if (type === "refresh_coins") {
+    const itemCount = asNumber(summary.item_count);
+    const sourceUrl = typeof summary.source_url === "string" ? summary.source_url : undefined;
+
+    if ((itemCount ?? 0) <= 0) {
+      pushPopupNotification({
+        severity: "warning",
+        title: "Coins refresh completed with empty result",
+        body: "Coin definitions were refreshed, but no coin entries were returned by the source.",
+        details: {
+          itemCount,
+          sourceUrl,
+        },
+      });
+      return;
+    }
+
+    pushPopupNotification({
+      severity: "info",
+      title: "Coin definitions refreshed",
+      body: `Coin cache updated successfully with ${itemCount} entries.`,
+      details: {
+        sourceUrl,
+      },
+    });
+    return;
+  }
+
+  if (type === "restart_kdf") {
+    const output = typeof summary.output === "string" ? summary.output : undefined;
+    if (!output) {
+      pushPopupNotification({
+        severity: "warning",
+        title: "Market maker restart completed",
+        body: "Restart command finished, but no execution output was returned.",
+      });
+      return;
+    }
+
+    pushPopupNotification({
+      severity: "info",
+      title: "Market maker restart completed",
+      body: "Restart command finished successfully.",
+      details: { output },
+    });
+    return;
+  }
+
+  const ok = summary.ok === true;
+  const nested = (summary.summary && typeof summary.summary === "object") ? (summary.summary as JsonObject) : undefined;
+  const attempts = nested ? asNumber(nested.coin_activation_attempts) : undefined;
+  const success = nested ? asNumber(nested.coin_activation_success) : undefined;
+  const mmStart = nested && typeof nested.mm_start_result === "string" ? nested.mm_start_result : undefined;
+
+  if (!ok) {
+    pushPopupNotification({
+      severity: "warning",
+      title: "Bootstrap applied with issues",
+      body: "Bootstrap execution completed, but some steps were not fully successful.",
+      details: {
+        coinActivationAttempts: attempts,
+        coinActivationSuccess: success,
+        mmStartResult: mmStart,
+      },
+    });
+    return;
+  }
+
+  pushPopupNotification({
+    severity: "info",
+    title: "Bootstrap applied successfully",
+    body: "Bootstrap completed and configuration was applied successfully.",
+    details: {
+      coinActivationAttempts: attempts,
+      coinActivationSuccess: success,
+      mmStartResult: mmStart,
+    },
+  });
+}
+
+function notifyCommandFailure(type: KcbCommandType, message: string): void {
+  const title = type === "refresh_coins"
+    ? "Coin refresh failed"
+    : type === "restart_kdf"
+      ? "Market maker restart failed"
+      : "Bootstrap apply failed";
+
+  pushPopupNotification({
+    severity: "error",
+    title,
+    body: message,
+  });
+}
+
 async function execute(type: KcbCommandType): Promise<JsonObject> {
   if (type === "restart_kdf") {
     const output = await restartKdfViaSystem();
@@ -188,6 +287,8 @@ async function runQueue(): Promise<void> {
         details: { id: cmd.id, finished_at: finishedAt, summary },
       });
 
+      notifyCommandSuccess(cmd.type as KcbCommandType, summary);
+
       if (cmd.type === "restart_kdf") {
         await enqueueBootstrapApplyIfNeeded("restart_kdf");
       }
@@ -216,6 +317,8 @@ async function runQueue(): Promise<void> {
           error: message,
         },
       });
+
+      notifyCommandFailure(cmd.type as KcbCommandType, message);
     }
   }
 }

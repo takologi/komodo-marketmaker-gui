@@ -2,14 +2,14 @@ import "server-only";
 
 import { DebugMessage, DebugSeverity } from "@/lib/debug/severity";
 
-const MAX_QUEUE_SIZE = 200;
+const MAX_QUEUE_SIZE = 1000;
 const queue: DebugMessage[] = [];
 
 function nextId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function enqueuePopupNotification(input: {
+export function enqueueLogWindowMessage(input: {
   timestamp?: string;
   severity: DebugSeverity;
   title: string;
@@ -31,12 +31,7 @@ export function enqueuePopupNotification(input: {
   return message;
 }
 
-export function consumePopupNotifications(limit = 50): DebugMessage[] {
-  const boundedLimit = Math.max(1, Math.min(limit, 200));
-  const items = queue.splice(0, boundedLimit);
-  return items;
+export function consumeLogWindowMessages(limit = 200): DebugMessage[] {
+  const boundedLimit = Math.max(1, Math.min(limit, MAX_QUEUE_SIZE));
+  return queue.splice(0, boundedLimit);
 }
-
-// Backward-compatible aliases.
-export const sendMessageToClient = enqueuePopupNotification;
-export const consumeClientMessages = consumePopupNotifications;

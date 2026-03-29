@@ -20,6 +20,7 @@ interface DebugLevelsResponse {
   data?: {
     messageLevel: DebugSeverity;
     logLevel: DebugSeverity;
+    logWindowEnabled: boolean;
     allowed: readonly DebugSeverity[];
   };
 }
@@ -33,6 +34,7 @@ export default function AdminPage() {
   const [levelsBusy, setLevelsBusy] = useState(false);
   const [levelsResult, setLevelsResult] = useState<string | null>(null);
   const [levelsReady, setLevelsReady] = useState(false);
+  const [logWindowEnabled, setLogWindowEnabled] = useState(false);
 
   async function onRestartClick() {
     setBusy(true);
@@ -76,6 +78,7 @@ export default function AdminPage() {
 
       setMessageLevel(json.data.messageLevel);
       setLogLevel(json.data.logLevel);
+      setLogWindowEnabled(Boolean(json.data.logWindowEnabled));
       setLevelsResult("Runtime levels synced");
       setLevelsReady(true);
     } catch {
@@ -85,7 +88,11 @@ export default function AdminPage() {
     }
   }, [token]);
 
-  async function saveRuntimeLevels(nextMessageLevel: DebugSeverity, nextLogLevel: DebugSeverity) {
+  async function saveRuntimeLevels(
+    nextMessageLevel: DebugSeverity,
+    nextLogLevel: DebugSeverity,
+    nextLogWindowEnabled: boolean,
+  ) {
     if (!token) {
       setLevelsResult("Admin token required to save runtime levels");
       return;
@@ -102,6 +109,7 @@ export default function AdminPage() {
         body: JSON.stringify({
           messageLevel: nextMessageLevel,
           logLevel: nextLogLevel,
+          logWindowEnabled: nextLogWindowEnabled,
         }),
       });
 
@@ -109,6 +117,7 @@ export default function AdminPage() {
       if (json.ok && json.data) {
         setMessageLevel(json.data.messageLevel);
         setLogLevel(json.data.logLevel);
+        setLogWindowEnabled(Boolean(json.data.logWindowEnabled));
       }
       setLevelsResult(json.message || "Runtime levels updated");
     } catch {
@@ -146,7 +155,7 @@ export default function AdminPage() {
     }
 
     setMessageLevel(next);
-    await saveRuntimeLevels(next, logLevel);
+    await saveRuntimeLevels(next, logLevel, logWindowEnabled);
   }
 
   async function onLogLevelChange(next: DebugSeverity) {
@@ -162,7 +171,12 @@ export default function AdminPage() {
     }
 
     setLogLevel(next);
-    await saveRuntimeLevels(messageLevel, next);
+    await saveRuntimeLevels(messageLevel, next, logWindowEnabled);
+  }
+
+  async function onLogWindowEnabledChange(next: boolean) {
+    setLogWindowEnabled(next);
+    await saveRuntimeLevels(messageLevel, logLevel, next);
   }
 
   useEffect(() => {
@@ -255,6 +269,19 @@ export default function AdminPage() {
           </label>
 
           {!token ? <p className="muted">Set admin token above to enable live runtime controls.</p> : null}
+
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <input
+              type="checkbox"
+              checked={logWindowEnabled}
+              onChange={(e) => {
+                void onLogWindowEnabledChange(e.target.checked);
+              }}
+              disabled={levelsBusy || !token}
+              style={{ width: "auto" }}
+            />
+            Enable on-screen log window
+          </label>
         </div>
 
         {levelsResult ? (

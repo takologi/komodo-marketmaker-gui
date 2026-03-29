@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { DebugLogWindow } from "@/components/debug-log-window";
 import { DebugPopupCenter } from "@/components/debug-popup-center";
 import { ensureKcbStartupInitialized } from "@/lib/kcb/startup";
 import "./globals.css";
@@ -37,6 +38,7 @@ export default function RootLayout({
             </div>
           </header>
           <DebugPopupCenter />
+          <DebugLogWindow />
           {children}
         </div>
       </body>

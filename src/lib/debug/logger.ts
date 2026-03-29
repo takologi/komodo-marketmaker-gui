@@ -3,7 +3,8 @@ import "server-only";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { sendMessageToClient } from "@/lib/debug/popup-bus";
+import { enqueueLogWindowMessage } from "@/lib/debug/log-window-bus";
+import { enqueuePopupNotification } from "@/lib/debug/popup-bus";
 import { getRuntimeDebugLevels } from "@/lib/debug/runtime-levels";
 import {
   DebugSeverity,
@@ -31,7 +32,7 @@ async function appendToLogFile(line: string): Promise<void> {
   await appendFile(filePath, `${line}\n`, "utf8");
 }
 
-export async function logDebugEvent(input: {
+export async function writeServerLogEvent(input: {
   severity: DebugSeverity;
   title: string;
   body: string;
@@ -51,8 +52,8 @@ export async function logDebugEvent(input: {
     }
   }
 
-  if (isSeverityAtOrAbove(input.severity, runtimeLevels.messageLevel)) {
-    sendMessageToClient({
+  if (runtimeLevels.logWindowEnabled && isSeverityAtOrAbove(input.severity, runtimeLevels.messageLevel)) {
+    enqueueLogWindowMessage({
       timestamp,
       severity: input.severity,
       title: input.title,
@@ -60,3 +61,21 @@ export async function logDebugEvent(input: {
     });
   }
 }
+
+export function pushPopupNotification(input: {
+  severity: DebugSeverity;
+  title: string;
+  body: string;
+  details?: unknown;
+}): void {
+  const details = input.details !== undefined ? ` details=${safeStringify(input.details)}` : "";
+  enqueuePopupNotification({
+    timestamp: new Date().toISOString(),
+    severity: input.severity,
+    title: input.title,
+    body: `${input.body}${details}`,
+  });
+}
+
+// Backward-compatible alias while migration is in progress.
+export const logDebugEvent = writeServerLogEvent;

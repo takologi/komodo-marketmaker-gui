@@ -339,3 +339,77 @@ pre {
 .severity-trace {
   border-left-color: #a389ff;
 }
+
+.debug-log-window {
+  position: fixed;
+  left: 0.9rem;
+  right: 0.9rem;
+  bottom: 0.9rem;
+  z-index: 900;
+  border: 1px solid #2f2f2f;
+  border-radius: 10px;
+  background: #000;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+  padding: 0.45rem 0.55rem 0.55rem;
+}
+
+.debug-log-window-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+}
+
+.debug-log-window-clear {
+  white-space: nowrap;
+}
+
+.debug-log-window-viewport {
+  height: 180px;
+  min-height: 100px;
+  max-height: 60vh;
+  overflow-y: auto;
+  resize: vertical;
+  border: 1px solid #303030;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  background: #000;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.debug-log-window-viewport p {
+  margin: 0;
+  line-height: 1.32;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.debug-log-window-viewport p + p {
+  margin-top: 0.24rem;
+}
+
+.debug-log-window-viewport .severity-critical {
+  color: #ff4d73;
+}
+
+.debug-log-window-viewport .severity-error {
+  color: #ff7f8d;
+}
+
+.debug-log-window-viewport .severity-warning {
+  color: #ffd166;
+}
+
+.debug-log-window-viewport .severity-info {
+  color: #7cc4ff;
+}
+
+.debug-log-window-viewport .severity-debug {
+  color: #85e6a8;
+}
+
+.debug-log-window-viewport .severity-trace {
+  color: #bca7ff;
+}
