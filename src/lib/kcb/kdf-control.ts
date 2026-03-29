@@ -22,7 +22,25 @@ export async function activateCoin(
     details: payload,
   });
 
-  return callKdfRpc<JsonValue>(activationMethod, payload);
+  try {
+    return await callKdfRpc<JsonValue>(activationMethod, payload);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already\s+initialized/i.test(message)) {
+      await logDebugEvent({
+        severity: "debug",
+        title: "KCB coin activation already initialized",
+        body: `Coin ${coin} is already initialized; treating activation as idempotent success`,
+        details: {
+          coin,
+          activationMethod,
+          message,
+        },
+      });
+      return { result: "already_initialized" };
+    }
+    throw error;
+  }
 }
 
 export async function startSimpleMmIfNeeded(startPayload?: JsonObject): Promise<JsonValue | null> {
