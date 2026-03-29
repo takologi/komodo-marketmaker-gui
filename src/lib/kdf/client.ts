@@ -343,6 +343,8 @@ export async function fetchOrdersRaw(): Promise<OrderViewRaw[]> {
   }
 
   if (isJsonObject(result)) {
+    const hasMakerOrdersField = Object.prototype.hasOwnProperty.call(result, "maker_orders");
+    const hasTakerOrdersField = Object.prototype.hasOwnProperty.call(result, "taker_orders");
     const makerOrders = asObjectRecord(result.maker_orders);
     const takerOrders = asObjectRecord(result.taker_orders);
 
@@ -359,6 +361,11 @@ export async function fetchOrdersRaw(): Promise<OrderViewRaw[]> {
     const combined = [...flatten(makerOrders, "maker"), ...flatten(takerOrders, "taker")];
     if (combined.length > 0) {
       return combined;
+    }
+
+    if (hasMakerOrdersField || hasTakerOrdersField) {
+      // Empty maker_orders/taker_orders is a valid "no active orders" response shape.
+      return [];
     }
 
     const maybeOrders = result.orders;
