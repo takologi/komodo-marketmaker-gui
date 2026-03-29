@@ -15,6 +15,11 @@ import {
 } from "@/lib/kcb/types";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
+interface ResolvedServers {
+  servers: JsonValue[] | null;
+  source: "activation.servers" | "activation.params.servers" | "coins_config.electrum" | "none";
+}
+
 function findCoinDefinition(coinDefinitions: JsonValue, ticker: string): JsonObject | null {
   const norm = ticker.toUpperCase();
 
@@ -62,19 +67,36 @@ function serversFromCoinDefinition(coinDef: JsonObject | null): JsonValue[] | nu
   return servers.length > 0 ? servers : null;
 }
 
-function resolveActivationServers(coinCfg: BootstrapCoinConfig, coinDefinitions: JsonValue): JsonValue[] | null {
+function resolveActivationServers(coinCfg: BootstrapCoinConfig, coinDefinitions: JsonValue): ResolvedServers {
   const activationServers = coinCfg.activation?.servers;
   if (Array.isArray(activationServers) && activationServers.length > 0) {
-    return activationServers as unknown as JsonValue[];
+    return {
+      servers: activationServers as unknown as JsonValue[],
+      source: "activation.servers",
+    };
   }
 
   const paramsServers = coinCfg.activation?.params?.servers;
   if (Array.isArray(paramsServers) && paramsServers.length > 0) {
-    return paramsServers as JsonValue[];
+    return {
+      servers: paramsServers as JsonValue[],
+      source: "activation.params.servers",
+    };
   }
 
   const coinDef = findCoinDefinition(coinDefinitions, coinCfg.coin);
-  return serversFromCoinDefinition(coinDef);
+  const coinConfigServers = serversFromCoinDefinition(coinDef);
+  if (coinConfigServers) {
+    return {
+      servers: coinConfigServers,
+      source: "coins_config.electrum",
+    };
+  }
+
+  return {
+    servers: null,
+    source: "none",
+  };
 }
 
 function defaultBootstrapConfig(): BootstrapConfig {
@@ -92,7 +114,26 @@ function defaultBootstrapConfig(): BootstrapConfig {
 export async function getBootstrapConfig(): Promise<BootstrapConfig> {
   await ensureKcbLayout();
   try {
-    return await readJsonFile<BootstrapConfig>(kcbPaths.bootstrapConfig());
+    const path = kcbPaths.bootstrapConfig();
+    const config = await readJsonFile<BootstrapConfig>(path);
+
+    await logDebugEvent({
+      severity: "debug",
+      title: "KCB bootstrap config loaded",
+      body: "Loaded bootstrap-config.json",
+      details: {
+        path,
+      },
+    });
+
+    await logDebugEvent({
+      severity: "trace",
+      title: "KCB bootstrap config content",
+      body: "bootstrap-config.json payload",
+      details: config,
+    });
+
+    return config;
   } catch (error) {
     const backup = `${kcbPaths.bootstrapConfig()}.corrupt.${Date.now()}`;
     try {
@@ -171,9 +212,43 @@ export async function saveBootstrapConfig(config: BootstrapConfig): Promise<Boot
   await ensureKcbLayout();
   const errors = validateBootstrapConfig(config);
   if (errors.length > 0) {
+    await logDebugEvent({
+      severity: "debug",
+      title: "KCB bootstrap config validation failed",
+      body: "Rejected bootstrap-config.json while saving",
+      details: {
+        path: kcbPaths.bootstrapConfig(),
+        errors,
+      },
+    });
+
+    await logDebugEvent({
+      severity: "trace",
+      title: "KCB bootstrap config rejected payload",
+      body: "Payload that failed bootstrap validation",
+      details: config,
+    });
+
     throw new Error(`Invalid bootstrap config: ${errors.join("; ")}`);
   }
   await writeJsonFile(kcbPaths.bootstrapConfig(), config);
+
+  await logDebugEvent({
+    severity: "debug",
+    title: "KCB bootstrap config saved",
+    body: "Saved bootstrap-config.json",
+    details: {
+      path: kcbPaths.bootstrapConfig(),
+    },
+  });
+
+  await logDebugEvent({
+    severity: "trace",
+    title: "KCB bootstrap config saved content",
+    body: "Persisted bootstrap-config.json payload",
+    details: config,
+  });
+
   return config;
 }
 
@@ -186,8 +261,41 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
   const cfg = await getBootstrapConfig();
   const errors = validateBootstrapConfig(cfg);
   if (errors.length > 0) {
+    await logDebugEvent({
+      severity: "debug",
+      title: "KCB bootstrap apply validation failed",
+      body: "bootstrap-config.json failed validation during apply",
+      details: {
+        path: kcbPaths.bootstrapConfig(),
+        errors,
+      },
+    });
+
+    await logDebugEvent({
+      severity: "trace",
+      title: "KCB bootstrap apply invalid config",
+      body: "Config payload rejected at apply time",
+      details: cfg,
+    });
+
     throw new Error(`Bootstrap validation failed: ${errors.join("; ")}`);
   }
+
+  await logDebugEvent({
+    severity: "debug",
+    title: "KCB bootstrap apply config path",
+    body: "Applying bootstrap-config.json from path",
+    details: {
+      path: kcbPaths.bootstrapConfig(),
+    },
+  });
+
+  await logDebugEvent({
+    severity: "trace",
+    title: "KCB bootstrap apply config content",
+    body: "Config payload used for apply",
+    details: cfg,
+  });
 
   await setBootstrapStatus({
     updated_at: new Date().toISOString(),
@@ -218,6 +326,16 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
   try {
     const coinDefinitions = await getCoinDefinitions();
 
+    await logDebugEvent({
+      severity: "debug",
+      title: "KCB bootstrap coin definitions loaded",
+      body: "Loaded coins_config cache for activation fallback",
+      details: {
+        cachePath: kcbPaths.coinsConfigCache(),
+        topLevelType: Array.isArray(coinDefinitions) ? "array" : typeof coinDefinitions,
+      },
+    });
+
     for (const coinCfg of cfg.coins) {
       summary.coin_activation_attempts = ((summary.coin_activation_attempts as number) || 0) + 1;
 
@@ -226,11 +344,35 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
       const methodNeedsServers = method === "enable" || method === "electrum";
       const resolvedServers = resolveActivationServers(coinCfg, coinDefinitions);
 
-      if (resolvedServers) {
-        activationParams.servers = resolvedServers;
+      if (resolvedServers.servers) {
+        activationParams.servers = resolvedServers.servers;
       } else {
         delete activationParams.servers;
       }
+
+      await logDebugEvent({
+        severity: "debug",
+        title: "KCB activation params resolved",
+        body: `Resolved activation payload for coin=${coinCfg.coin}`,
+        details: {
+          coin: coinCfg.coin,
+          method: coinCfg.activation.method,
+          methodNeedsServers,
+          serversSource: resolvedServers.source,
+          serversCount: Array.isArray(activationParams.servers) ? activationParams.servers.length : 0,
+        },
+      });
+
+      await logDebugEvent({
+        severity: "trace",
+        title: "KCB activation payload",
+        body: `Final activation payload for coin=${coinCfg.coin}`,
+        details: {
+          coin: coinCfg.coin,
+          activationMethod: coinCfg.activation.method,
+          params: activationParams,
+        },
+      });
 
       if (methodNeedsServers && !Array.isArray(activationParams.servers)) {
         applyErrors.push(
@@ -251,6 +393,22 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
 
     if (cfg.simple_mm.enabled && cfg.simple_mm.start_on_apply) {
       summary.mm_start_attempted = true;
+      await logDebugEvent({
+        severity: "debug",
+        title: "KCB simple MM start requested",
+        body: "Starting simple market maker from bootstrap config",
+        details: {
+          path: kcbPaths.bootstrapConfig(),
+        },
+      });
+
+      await logDebugEvent({
+        severity: "trace",
+        title: "KCB simple MM start payload",
+        body: "simple_mm.start_payload used for start_simple_market_maker_bot",
+        details: cfg.simple_mm.start_payload,
+      });
+
       try {
         const result = await startSimpleMmIfNeeded(cfg.simple_mm.start_payload);
         summary.mm_start_result = result ? "started" : "already_running_or_skipped";
