@@ -201,6 +201,42 @@ export async function callKdfRpc<T = JsonValue>(
   return doRpcCall<T>(method, params);
 }
 
+// ---------------------------------------------------------------------------
+// Maker order primitives
+// ---------------------------------------------------------------------------
+
+export interface SetMakerOrderParams {
+  base: string;
+  rel: string;
+  /** Price as a decimal string: how much rel per 1 base. */
+  price: string;
+  /** Base coin amount as a decimal string. */
+  volume: string;
+  min_volume?: string;
+  /**
+   * When true, any existing maker order for the same base/rel pair is
+   * cancelled before the new one is created. Defaults to true here so
+   * that every apply is idempotent.
+   */
+  cancel_previous?: boolean;
+  base_confs?: number;
+  base_nota?: boolean;
+  rel_confs?: number;
+  rel_nota?: boolean;
+}
+
+/**
+ * Place a maker order via KDF `setprice`.
+ * Always sets cancel_previous=true unless overridden, making each call idempotent
+ * for a given pair. Returns the created order object from KDF.
+ */
+export async function setMakerOrder(params: SetMakerOrderParams): Promise<JsonObject> {
+  return callKdfRpc<JsonObject>("setprice", {
+    cancel_previous: true,
+    ...params,
+  });
+}
+
 export interface StatusViewRaw {
   [key: string]: JsonValue;
 }

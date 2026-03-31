@@ -64,6 +64,18 @@ export const KDF_RPC_METHOD_SPECS: Record<string, KdfRpcMethodSpec> = {
     description: "Generic coin enable/activation",
     requiresPayload: true,
   },
+  setprice: {
+    method: "setprice",
+    apiVersion: "legacy",
+    description: "Place a maker order; cancel_previous cancels any existing order for the same pair",
+    requiresPayload: true,
+  },
+  cancel_order: {
+    method: "cancel_order",
+    apiVersion: "legacy",
+    description: "Cancel a maker order by UUID",
+    requiresPayload: true,
+  },
 };
 
 export const DEFAULT_KDF_RPC_METHOD_SPEC: KdfRpcMethodSpec = {

@@ -5,6 +5,7 @@ import { rename } from "node:fs/promises";
 import { logDebugEvent } from "@/lib/debug/logger";
 import { getCoinDefinitions, refreshCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { activateCoin, startSimpleMmIfNeeded } from "@/lib/kcb/kdf-control";
+import { applyDirectOrders } from "@/lib/kcb/orders/service";
 import { kcbPaths } from "@/lib/kcb/paths";
 import { ensureKcbLayout, readJsonFile, writeJsonFile } from "@/lib/kcb/storage";
 import {
@@ -287,6 +288,20 @@ export function validateBootstrapConfig(config: BootstrapConfig): string[] {
     }
   }
 
+  if (config.direct_orders !== undefined) {
+    if (!Array.isArray(config.direct_orders)) {
+      errors.push("direct_orders must be an array");
+    } else {
+      for (let i = 0; i < config.direct_orders.length; i++) {
+        const o = config.direct_orders[i];
+        if (!o.base) errors.push(`direct_orders[${i}]: missing base`);
+        if (!o.rel) errors.push(`direct_orders[${i}]: missing rel`);
+        if (!o.price) errors.push(`direct_orders[${i}]: missing price`);
+        if (!o.volume) errors.push(`direct_orders[${i}]: missing volume`);
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -399,6 +414,8 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
   const summary: JsonObject = {
     coin_activation_attempts: 0,
     coin_activation_success: 0,
+    direct_orders_attempted: 0,
+    direct_orders_success: 0,
     mm_start_attempted: false,
     mm_start_result: "skipped",
   };
@@ -520,6 +537,28 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
         applyErrors.push(
           `activation failed for ${coinCfg.coin}: ${errorMessage}${hint}`,
         );
+      }
+    }
+
+    const directOrders = cfg.direct_orders ?? [];
+    if (directOrders.length > 0) {
+      summary.direct_orders_attempted = directOrders.length;
+
+      await logDebugEvent({
+        severity: "debug",
+        title: "KCB direct orders apply",
+        body: `Applying ${directOrders.length} direct order(s) from bootstrap config`,
+        details: { count: directOrders.length },
+      });
+
+      const orderResults = await applyDirectOrders(directOrders);
+      const succeeded = orderResults.filter((r) => r.ok).length;
+      summary.direct_orders_success = succeeded;
+
+      for (const r of orderResults) {
+        if (!r.ok) {
+          applyErrors.push(`direct order ${r.base}/${r.rel}: ${r.error}`);
+        }
       }
     }
 

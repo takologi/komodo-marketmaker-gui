@@ -18,7 +18,6 @@ export interface KcbCommandRecord {
 export interface CoinActivationServer {
   url: string;
 }
-
 export interface CoinActivationSpec {
   method: string;
   params?: JsonObject;
@@ -30,10 +29,34 @@ export interface BootstrapCoinConfig {
   activation: CoinActivationSpec;
 }
 
+/**
+ * A single maker order placed directly by KCB via setprice.
+ * Used in Phase 1 (direct order placement) and as the mechanism
+ * for the KCB price-oracle phases that follow.
+ */
+export interface DirectOrderConfig {
+  base: string;
+  rel: string;
+  /** Price as a decimal string, e.g. "1.02" (how much rel per 1 base). */
+  price: string;
+  /** Base coin volume as a decimal string, e.g. "10". */
+  volume: string;
+  min_volume?: string;
+  base_confs?: number;
+  base_nota?: boolean;
+  rel_confs?: number;
+  rel_nota?: boolean;
+}
+
 export interface BootstrapConfig {
   version: number;
   kcb_log_level: DebugSeverity;
   coins: BootstrapCoinConfig[];
+  /**
+   * Maker orders KCB places directly via setprice on each apply.
+   * cancel_previous=true is always passed, making apply idempotent.
+   */
+  direct_orders?: DirectOrderConfig[];
   simple_mm: {
     enabled: boolean;
     start_on_apply: boolean;
