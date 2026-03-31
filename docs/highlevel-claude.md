@@ -270,6 +270,84 @@ The current phase aims to achieve all of the following:
 
 ---
 
+## 6a. Price source options and implementation phases
+
+### Price source options
+
+Four technical options exist for how the market-making layer receives price data. Options (a) and (b) use `simple_market_maker_bot` with an external price source. Options (c) and (d) use KCB as the price oracle, served via an internal HTTP endpoint that `simple_mm` reads.
+
+**Option (a): External aggregator**
+
+- KDF connects to the default price aggregators (Gleec/CiPig) or to custom URLs configured in bootstrap.
+- `simple_mm` works natively — no KCB price infrastructure required.
+- CEX drives DEX price. Structurally positions DEX as a price follower.
+- Useful for coins already listed on aggregators. Rincoin is on CoinPaprika and LiveCoinWatch, so this can be tested at any time.
+- Independent of the implementation phases below.
+
+**Option (b): Project-provided custom price URL**
+
+- A coin project or partner hosts a price endpoint in the format `simple_mm` expects.
+- KCB configures `price_urls` in the `simple_mm` start request to point at it.
+- Use case: new coins that want to control their own oracle before reaching aggregator coverage.
+- No KCB price computation logic — KCB only passes the URL through.
+
+**Option (c): KCB price oracle — liquidity-ratio computed price**
+
+- KCB reads wallet balances on both sides of the traded pair.
+- Computes price from a configurable formula (primary: constant-product, `price = balance_rel / balance_base`).
+- Serves the computed price via an internal HTTP endpoint consumed by `simple_mm`.
+- Positions DEX as the primary market: price emerges from on-chain state, not from CEX.
+- Creates a feedback loop: swaps change balances → KCB recomputes → orders updated on next tick.
+- Target model for Rincoin long-term DEX-primary strategy.
+
+**Option (d): KCB price oracle — operator-set constant**
+
+- KCB serves a fixed price value via the same internal HTTP endpoint as option (c).
+- No price computation logic — operator sets the price directly in bootstrap config.
+- Use case: manual price bootstrapping, thin market seeding, testing, and validating the KCB-oracle pipeline before adding computation complexity.
+
+**Key constraint for options using `simple_mm`:** both coins in the pair must appear as a non-`Unknown` provider in the price response. Options (c) and (d) always satisfy this because KCB controls the endpoint output.
+
+---
+
+### Implementation phases
+
+Each phase is a standalone deliverable that leaves the system in a working, testable state.
+
+**Phase 1 — Direct order placement (`set_price`, no `simple_mm`)**
+
+- KCB calls KDF `set_price` directly with an operator-configured price (option d without `simple_mm`).
+- No price oracle, no HTTP endpoint, no `simple_mm` involvement.
+- Validates the core KCB → KDF control flow and confirms a real order can be placed on-chain.
+- Current target phase.
+
+**Phase 2 — KCB price oracle, fixed price (option d via `simple_mm`)**
+
+- KCB hosts an internal HTTP endpoint returning a fixed operator-configured price in the format `simple_mm` expects.
+- KCB configures `simple_mm` to consume this endpoint via `price_urls`.
+- `simple_mm` takes over order lifecycle: VWAP floor, balance-aware volume, cancel-on-stale-price.
+- Validates the full KCB-oracle → `simple_mm` → KDF pipeline.
+- The HTTP endpoint, price format, and `price_urls` wiring established here are reused in phases 3 and 4 without structural changes.
+
+**Phase 3 — KCB price oracle with computed price (option c, proof of concept)**
+
+- KCB extends the Phase 2 price endpoint to derive price from wallet balance ratios.
+- Single formula implemented first: constant-product (`price = balance_rel / balance_base`).
+- DEX-primary price model: order price tracks pool composition, not external markets.
+- Validates the full feedback loop: swap → balance changes → KCB recomputes → order price updates on next `simple_mm` tick.
+
+**Phase 4 — Extended KCB price oracle strategies**
+
+- Additional price computation models with configurable parameters added as selectable KCB modules.
+- Examples: constant-sum, VWAP of historical fills, mean-reversion around an operator-set anchor price.
+- Foundation for more sophisticated market-making behavior.
+
+---
+
+**Option (a) is independent of these phases.** It does not require KCB price infrastructure and can be enabled at any time for coins with aggregator coverage. It should be tested with Rincoin alongside or after Phase 1, as it exercises a separate code path (KDF talking directly to external aggregators).
+
+---
+
 ## 7. Coin definitions and external metadata (fixed direction)
 
 ## 7.1 Coin definitions source
@@ -780,9 +858,17 @@ Open questions:
 
 ## 17.5 Exact scope of first “market-making complete enough” version
 
-The current immediate goal is clear, but there is still some uncertainty about:
+The implementation phases defined in §6a establish the incremental path. The scope question becomes: which phase constitutes "complete enough" for the first real Rincoin deployment?
 
-* how much parameter editing must be available before the first real Rincoin deployment,
+Current best answer:
+
+* Phase 1 completion (working order via KCB → KDF `set_price`) is the minimum viable test of the stack.
+* Phase 2 is needed before claiming the KCB-oracle architecture is validated end-to-end.
+* Option (a) with Rincoin's existing aggregator coverage (CoinPaprika, LiveCoinWatch) should be tested alongside Phase 1 as a parallel low-complexity verification of the `simple_mm` native path.
+
+Open questions remaining:
+
+* how much parameter editing must be available through GUI before the first real Rincoin deployment,
 * how much diagnostics must exist before maintainers are approached,
 * how much of the bootstrap must be fully idempotent vs “practically idempotent”.
 
