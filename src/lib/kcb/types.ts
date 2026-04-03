@@ -77,6 +77,68 @@ export interface BootstrapStatusState {
   message: string;
 }
 
+// ---------------------------------------------------------------------------
+// GUI policy — display preferences for trading pairs
+// Stored in ~/.kcb/config/gui-policy.json
+// Separate from bootstrap: has no KCB/KDF runtime consequences.
+// ---------------------------------------------------------------------------
+
+export interface GuiPairPolicy {
+  base: string;
+  rel: string;
+  /** Whether to show this pair's section in the Orders screen. Default: true. */
+  show?: boolean;
+  /** Whether to show orders from all market participants or only own orders. Default: false. */
+  show_all_orders?: boolean;
+}
+
+export interface GuiPolicy {
+  version: number;
+  trading_pairs: GuiPairPolicy[];
+}
+
+// ---------------------------------------------------------------------------
+// Resolved pair — output of the pair resolver (bootstrap auto-config merged
+// with gui-policy overrides). Consumed by the GUI via /api/kcb/pairs.
+// ---------------------------------------------------------------------------
+
+export interface ResolvedPair {
+  base: string;
+  rel: string;
+  show: boolean;
+  show_all_orders: boolean;
+  /** How this pair entered the resolved list. */
+  source: "direct_orders" | "simple_mm_cfg" | "gui_policy";
+}
+
+// ---------------------------------------------------------------------------
+// Orderbook — annotated order entries returned by /api/kcb/orderbook.
+// KCB joins the KDF orderbook with my_orders to mark each entry as mine/theirs.
+// ---------------------------------------------------------------------------
+
+export interface OrderbookEntry {
+  uuid: string;
+  price: number;
+  volume: number;
+  /** True when this order's UUID appears in my_orders. */
+  mine: boolean;
+}
+
+export interface PairOrderbook {
+  base: string;
+  rel: string;
+  /**
+   * Asks: offers to sell base for rel.
+   * Sorted price ascending (cheapest ask first — classic order book ask side).
+   */
+  asks: OrderbookEntry[];
+  /**
+   * Bids: offers to sell rel for base (i.e. buying base with rel).
+   * Sorted price descending (highest bid first).
+   */
+  bids: OrderbookEntry[];
+}
+
 export interface CoinSourceConfig {
   coins_config_url: string;
   icons_base_url: string;

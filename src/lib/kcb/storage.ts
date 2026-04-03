@@ -7,7 +7,13 @@ import { dirname } from "node:path";
 import { logDebugEvent } from "@/lib/debug/logger";
 import { getKcbCoinsConfigUrl, getKcbIconsBaseUrl } from "@/lib/kcb/env";
 import { kcbPaths } from "@/lib/kcb/paths";
-import { BootstrapConfig, BootstrapStatusState, CoinSourceConfig, LastApplyState } from "@/lib/kcb/types";
+import {
+  BootstrapConfig,
+  BootstrapStatusState,
+  CoinSourceConfig,
+  GuiPolicy,
+  LastApplyState,
+} from "@/lib/kcb/types";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -55,6 +61,13 @@ function defaultCoinSources(): CoinSourceConfig {
   };
 }
 
+function defaultGuiPolicy(): GuiPolicy {
+  return {
+    version: 1,
+    trading_pairs: [],
+  };
+}
+
 function defaultBootstrapStatus(): BootstrapStatusState {
   return {
     updated_at: new Date().toISOString(),
@@ -94,6 +107,10 @@ export async function ensureKcbLayout(): Promise<void> {
 
   if (!(await exists(kcbPaths.coinSources()))) {
     await writeJsonFile(kcbPaths.coinSources(), defaultCoinSources());
+  }
+
+  if (!(await exists(kcbPaths.guiPolicy()))) {
+    await writeJsonFile(kcbPaths.guiPolicy(), defaultGuiPolicy());
   }
 
   if (!(await exists(kcbPaths.bootstrapStatus()))) {

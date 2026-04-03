@@ -76,6 +76,12 @@ export const KDF_RPC_METHOD_SPECS: Record<string, KdfRpcMethodSpec> = {
     description: "Cancel a maker order by UUID",
     requiresPayload: true,
   },
+  orderbook: {
+    method: "orderbook",
+    apiVersion: "legacy",
+    description: "Fetch all maker orders for a base/rel pair from all participants",
+    requiresPayload: true,
+  },
 };
 
 export const DEFAULT_KDF_RPC_METHOD_SPEC: KdfRpcMethodSpec = {

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Nav } from "@/components/nav";
+import { usePolling } from "@/components/use-polling";
+import { GuiPairPolicy, ResolvedPair } from "@/lib/kcb/types";
 
 const SEVERITIES = ["critical", "error", "warning", "info", "debug", "trace"] as const;
 
@@ -290,6 +292,154 @@ export default function AdminPage() {
           </p>
         ) : null}
       </section>
+
+      <TradingPairsAdmin token={token} />
     </main>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trading pairs admin section
+// ---------------------------------------------------------------------------
+
+interface PairRow {
+  base: string;
+  rel: string;
+  swapped: boolean;
+  show: boolean;
+  showAllOrders: boolean;
+}
+
+function pairKey(base: string, rel: string) {
+  return `${base}/${rel}`;
+}
+
+function TradingPairsAdmin({ token }: { token: string }) {
+  const { data: pairs } = usePolling<ResolvedPair[]>("/api/kcb/pairs");
+  const [rows, setRows] = useState<PairRow[]>([]);
+  const [saveResult, setSaveResult] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Initialise rows when pair list loads; keep local edits if already set.
+  useEffect(() => {
+    if (!pairs || pairs.length === 0) return;
+    setRows((current) => {
+      if (current.length > 0) return current;
+      return pairs.map((p) => ({
+        base: p.base,
+        rel: p.rel,
+        swapped: false,
+        show: p.show,
+        showAllOrders: p.show_all_orders,
+      }));
+    });
+  }, [pairs]);
+
+  function patchRow(base: string, rel: string, patch: Partial<PairRow>) {
+    setRows((prev) =>
+      prev.map((r) => (r.base === base && r.rel === rel ? { ...r, ...patch } : r)),
+    );
+  }
+
+  async function onSave() {
+    if (!token) {
+      setSaveResult("Admin token required.");
+      return;
+    }
+    setSaving(true);
+    setSaveResult(null);
+
+    // Build the GuiPairPolicy list from rows, applying the swapped flag.
+    const tradingPairs: GuiPairPolicy[] = rows.map((r) => ({
+      base: r.swapped ? r.rel : r.base,
+      rel: r.swapped ? r.base : r.rel,
+      show: r.show,
+      show_all_orders: r.showAllOrders,
+    }));
+
+    try {
+      const res = await fetch("/api/kcb/gui-policy", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ trading_pairs: tradingPairs }),
+      });
+      const json = (await res.json()) as { ok: boolean; message?: string };
+      setSaveResult(json.ok ? "Pair settings saved to gui-policy.json." : (json.message ?? "Save failed."));
+    } catch {
+      setSaveResult("Failed to contact gui-policy endpoint.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!pairs || pairs.length === 0) {
+    return (
+      <section className="card">
+        <h2>Trading pairs</h2>
+        <p className="muted">No trading pairs resolved from bootstrap config.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card">
+      <h2>Trading pairs</h2>
+      <p className="muted" style={{ marginBottom: "0.6rem" }}>
+        Configure display settings for each pair. Save to persist in{" "}
+        <code>gui-policy.json</code>. Requires admin token.
+      </p>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Pair</th>
+            <th>Visible</th>
+            <th>Show all orders</th>
+            <th>Swap sides</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const displayBase = row.swapped ? row.rel : row.base;
+            const displayRel = row.swapped ? row.base : row.rel;
+            return (
+              <tr key={pairKey(row.base, row.rel)}>
+                <td>{displayBase}/{displayRel}</td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={row.show}
+                    onChange={() => patchRow(row.base, row.rel, { show: !row.show })}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={row.showAllOrders}
+                    onChange={() => patchRow(row.base, row.rel, { showAllOrders: !row.showAllOrders })}
+                  />
+                </td>
+                <td>
+                  <button
+                    style={{ fontSize: "0.8em" }}
+                    onClick={() => patchRow(row.base, row.rel, { swapped: !row.swapped })}
+                  >
+                    ⇄ {row.swapped ? `${row.rel}/${row.base}` : `${row.base}/${row.rel}`}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="controls" style={{ marginTop: "0.8rem" }}>
+        <button onClick={() => void onSave()} disabled={saving || !token}>
+          {saving ? "Saving…" : "Save to gui-policy.json"}
+        </button>
+        {!token ? <span className="muted">Enter admin token above to enable save.</span> : null}
+      </div>
+      {saveResult ? (
+        <p className="muted" style={{ marginTop: "0.5rem" }}>{saveResult}</p>
+      ) : null}
+    </section>
   );
 }

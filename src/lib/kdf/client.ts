@@ -237,6 +237,36 @@ export async function setMakerOrder(params: SetMakerOrderParams): Promise<JsonOb
   });
 }
 
+// ---------------------------------------------------------------------------
+// Orderbook
+// ---------------------------------------------------------------------------
+
+export interface OrderbookRawEntry {
+  uuid?: string;
+  coin?: string;
+  address?: string;
+  price?: JsonValue;
+  maxvolume?: JsonValue;
+  min_volume?: JsonValue;
+  pubkey?: string;
+  [key: string]: JsonValue | undefined;
+}
+
+export interface OrderbookRaw {
+  /** Asks side: entries offering to sell `base` for `rel`. */
+  asks?: OrderbookRawEntry[];
+  /** Bids side: entries offering to sell `rel` for `base`. */
+  bids?: OrderbookRawEntry[];
+}
+
+/**
+ * Fetch the orderbook for a single directional pair.
+ * Returns the raw KDF payload; callers are responsible for normalisation.
+ */
+export async function fetchOrderbookRaw(base: string, rel: string): Promise<OrderbookRaw> {
+  return callKdfRpc<OrderbookRaw>("orderbook", { base, rel });
+}
+
 export interface StatusViewRaw {
   [key: string]: JsonValue;
 }

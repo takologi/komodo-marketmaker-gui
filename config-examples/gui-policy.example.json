@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "trading_pairs": [
+    {
+      "base": "KMD",
+      "rel": "BTC",
+      "show": true,
+      "show_all_orders": false
+    },
+    {
+      "base": "DOC",
+      "rel": "MARTY",
+      "show": true,
+      "show_all_orders": true
+    },
+    {
+      "base": "RIN",
+      "rel": "KMD",
+      "show": false,
+      "show_all_orders": false
+    }
+  ]
+}

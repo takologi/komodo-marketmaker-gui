@@ -1,8 +1,9 @@
 import "server-only";
 
 import { logDebugEvent } from "@/lib/debug/logger";
-import { DirectOrderConfig } from "@/lib/kcb/types";
-import { setMakerOrder } from "@/lib/kdf/client";
+import { DirectOrderConfig, OrderbookEntry, PairOrderbook } from "@/lib/kcb/types";
+import { fetchOrderbookRaw, fetchOrdersRaw, setMakerOrder } from "@/lib/kdf/client";
+import { asNumber, asString } from "@/lib/kdf/adapters/common";
 
 // ---------------------------------------------------------------------------
 // KCB order management — Phase 1: direct order placement
@@ -108,4 +109,65 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
   }
 
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Annotated orderbook
+//
+// Fetches KDF orderbook for both directions (asks = base→rel, bids = rel→base)
+// plus my_orders so every entry can be marked mine=true/false.
+// The GUI uses the mine flag to show a visual indicator on own orders.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fully annotated orderbook for a pair.
+ * Fetches three KDF calls in parallel: orderbook(base,rel), orderbook(rel,base),
+ * my_orders. The result contains asks and bids with each entry tagged mine=true
+ * when its UUID is among our open orders.
+ */
+export async function buildAnnotatedOrderbook(base: string, rel: string): Promise<PairOrderbook> {
+  const [asksRaw, bidsRaw, myOrdersRaw] = await Promise.all([
+    fetchOrderbookRaw(base, rel).catch(() => ({ asks: [], bids: [] })),
+    fetchOrderbookRaw(rel, base).catch(() => ({ asks: [], bids: [] })),
+    fetchOrdersRaw().catch(() => []),
+  ]);
+
+  // Build a set of our own order UUIDs.
+  const myUuids = new Set<string>(
+    myOrdersRaw
+      .map((o) => (typeof o.uuid === "string" ? o.uuid : ""))
+      .filter(Boolean),
+  );
+
+  function normaliseEntries(
+    entries: typeof asksRaw.asks,
+    sortDescending: boolean,
+  ): OrderbookEntry[] {
+    const items: OrderbookEntry[] = (entries ?? []).map((entry) => ({
+      uuid: asString(entry.uuid, ""),
+      price: asNumber(entry.price),
+      volume: asNumber(entry.maxvolume ?? entry.min_volume),
+      mine: Boolean(entry.uuid && myUuids.has(String(entry.uuid))),
+    }));
+
+    items.sort((a, b) => sortDescending ? b.price - a.price : a.price - b.price);
+    return items;
+  }
+
+  // Asks: entries from orderbook(base, rel) — sorted price ascending.
+  const asks = normaliseEntries(asksRaw.asks, false);
+
+  // Bids: entries from orderbook(rel, base) where THEY offer rel for base —
+  // which from the base/rel perspective means they are buying base.
+  // Sorted price descending (best bid first).
+  const bids = normaliseEntries(bidsRaw.asks, true);
+
+  await logDebugEvent({
+    severity: "debug",
+    title: "KCB orderbook built",
+    body: `Annotated orderbook for ${base}/${rel}`,
+    details: { base, rel, asks: asks.length, bids: bids.length, myOrders: myUuids.size },
+  });
+
+  return { base, rel, asks, bids };
 }

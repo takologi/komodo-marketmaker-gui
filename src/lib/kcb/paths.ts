@@ -20,6 +20,7 @@ export const kcbPaths = {
   bootstrapConfig: () => kcbPath("config", "bootstrap-config.json"),
   capabilitiesLocal: () => kcbPath("config", "kdf-capabilities.local.json"),
   coinSources: () => kcbPath("config", "coin-sources.json"),
+  guiPolicy: () => kcbPath("config", "gui-policy.json"),
 
   coinsConfigCache: () => kcbPath("cache", "coins", "coins_config.json"),
   coinsMetaCache: () => kcbPath("cache", "coins", "coins_config.meta.json"),
