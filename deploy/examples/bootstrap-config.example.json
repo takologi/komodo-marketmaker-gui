@@ -35,7 +35,8 @@
       "activation": {
         "method": "electrum",
         "params": {
-          "tx_history": true
+          "tx_history": true,
+          "mm2": 1
         }
       }
     },
@@ -44,7 +45,8 @@
       "activation": {
         "method": "electrum",
         "params": {
-          "tx_history": true
+          "tx_history": true,
+          "mm2": 1
         }
       }
     }

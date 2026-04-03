@@ -218,8 +218,8 @@ export async function buildAnnotatedOrderbook(base: string, rel: string): Promis
   }
 
   // Asks: entries from orderbook(base, rel) — price in (rel/base), volume in base.
-  // Sorted price ascending.
-  const asks = normaliseEntries(asksRaw.asks, false);
+  // Sorted price descending (highest ask first — consistent with bids layout below).
+  const asks = normaliseEntries(asksRaw.asks, true);
 
   // Bids: entries from orderbook(rel, base) — their prices are in (base/rel) units
   // (inverted vs. what we want to display). Pass invertPriceVolume=true so that

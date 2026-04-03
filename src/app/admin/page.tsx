@@ -323,18 +323,37 @@ function TradingPairsAdmin({ token }: { token: string }) {
   // server updates do not overwrite the in-progress edits.
   const [isDirty, setIsDirty] = useState(false);
 
+  // Read the Orders-page localStorage overrides so Admin shows the effective state.
+  function readLsOverrides(): Record<string, { hidden?: boolean; showAllOrders?: boolean }> {
+    try {
+      const raw = localStorage.getItem("kcb:pair-overrides");
+      return raw ? (JSON.parse(raw) as Record<string, { hidden?: boolean; showAllOrders?: boolean }>) : {};
+    } catch {
+      return {};
+    }
+  }
+
   // Sync rows from the latest server data whenever there are no unsaved edits.
   useEffect(() => {
     if (!pairs || pairs.length === 0) return;
     if (isDirty) return;
+
+    // Merge server state with any localStorage overrides so the Admin table
+    // reflects the same effective state visible on the Orders page.
+    const lsOverrides = readLsOverrides();
     setRows(
-      pairs.map((p) => ({
-        base: p.base,
-        rel: p.rel,
-        swapped: false,
-        show: p.show,
-        showAllOrders: p.show_all_orders,
-      })),
+      pairs.map((p) => {
+        const key = `${p.base}/${p.rel}`;
+        const ls = lsOverrides[key];
+        return {
+          base: p.base,
+          rel: p.rel,
+          swapped: false,
+          // If the Orders page has set a hidden override, honour it here.
+          show: ls?.hidden !== undefined ? !ls.hidden : p.show,
+          showAllOrders: ls?.showAllOrders !== undefined ? ls.showAllOrders : p.show_all_orders,
+        };
+      }),
     );
   }, [pairs, isDirty]);
 
@@ -370,6 +389,27 @@ function TradingPairsAdmin({ token }: { token: string }) {
       const json = (await res.json()) as { ok: boolean; message?: string };
       setSaveResult(json.ok ? "Pair settings saved to gui-policy.json." : (json.message ?? "Save failed."));
       if (json.ok) {
+        // Also sync the Orders-page localStorage overrides so the two pages
+        // immediately reflect the same effective state without a hard refresh.
+        try {
+          const raw = localStorage.getItem("kcb:pair-overrides");
+          const lsOverrides: Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }> =
+            raw ? (JSON.parse(raw) as Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }>) : {};
+
+          for (const r of rows) {
+            const key = `${r.base}/${r.rel}`;
+            const existing = lsOverrides[key] ?? {};
+            lsOverrides[key] = {
+              ...existing,
+              hidden: !r.show,
+              showAllOrders: r.showAllOrders,
+            };
+          }
+          localStorage.setItem("kcb:pair-overrides", JSON.stringify(lsOverrides));
+        } catch {
+          // localStorage unavailable — not critical.
+        }
+
         // Allow rows to re-sync from server on the next poll cycle.
         setIsDirty(false);
       }
