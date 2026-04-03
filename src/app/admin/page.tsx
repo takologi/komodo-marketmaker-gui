@@ -317,13 +317,11 @@ function pairKey(base: string, rel: string) {
 function TradingPairsAdmin({ token }: { token: string }) {
   const { data: pairs } = usePolling<ResolvedPair[]>("/api/kcb/pairs");
   const [rows, setRows] = useState<PairRow[]>([]);
-  const [saveResult, setSaveResult] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [saving, setSaving] = useState(false);
-  // Track whether the user has unsaved local edits. While dirty, incoming
-  // server updates do not overwrite the in-progress edits.
+  // When true, incoming server polls won't overwrite in-progress user edits.
   const [isDirty, setIsDirty] = useState(false);
 
-  // Read the Orders-page localStorage overrides so Admin shows the effective state.
   function readLsOverrides(): Record<string, { hidden?: boolean; showAllOrders?: boolean }> {
     try {
       const raw = localStorage.getItem("kcb:pair-overrides");
@@ -333,13 +331,11 @@ function TradingPairsAdmin({ token }: { token: string }) {
     }
   }
 
-  // Sync rows from the latest server data whenever there are no unsaved edits.
+  // Sync rows from server whenever there are no unsaved edits.
   useEffect(() => {
     if (!pairs || pairs.length === 0) return;
     if (isDirty) return;
 
-    // Merge server state with any localStorage overrides so the Admin table
-    // reflects the same effective state visible on the Orders page.
     const lsOverrides = readLsOverrides();
     setRows(
       pairs.map((p) => {
@@ -349,7 +345,6 @@ function TradingPairsAdmin({ token }: { token: string }) {
           base: p.base,
           rel: p.rel,
           swapped: false,
-          // If the Orders page has set a hidden override, honour it here.
           show: ls?.hidden !== undefined ? !ls.hidden : p.show,
           showAllOrders: ls?.showAllOrders !== undefined ? ls.showAllOrders : p.show_all_orders,
         };
@@ -357,23 +352,34 @@ function TradingPairsAdmin({ token }: { token: string }) {
     );
   }, [pairs, isDirty]);
 
-  function patchRow(base: string, rel: string, patch: Partial<PairRow>) {
-    setIsDirty(true);
-    setRows((prev) =>
-      prev.map((r) => (r.base === base && r.rel === rel ? { ...r, ...patch } : r)),
-    );
-  }
+  /**
+   * Persist a rows snapshot to both localStorage and the gui-policy API.
+   * Called immediately after every user interaction (no Save button needed).
+   */
+  async function saveRows(nextRows: PairRow[]) {
+    // Always sync localStorage, regardless of whether the token is set.
+    try {
+      const raw = localStorage.getItem("kcb:pair-overrides");
+      const lsOverrides: Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }> =
+        raw ? (JSON.parse(raw) as Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }>) : {};
+      for (const r of nextRows) {
+        const key = `${r.base}/${r.rel}`;
+        lsOverrides[key] = { ...lsOverrides[key], hidden: !r.show, showAllOrders: r.showAllOrders };
+      }
+      localStorage.setItem("kcb:pair-overrides", JSON.stringify(lsOverrides));
+    } catch {
+      // localStorage unavailable — not critical.
+    }
 
-  async function onSave() {
     if (!token) {
-      setSaveResult("Admin token required.");
+      setSaveStatus({ ok: false, message: "Enter admin token above to persist to gui-policy.json." });
       return;
     }
-    setSaving(true);
-    setSaveResult(null);
 
-    // Build the GuiPairPolicy list from rows, applying the swapped flag.
-    const tradingPairs: GuiPairPolicy[] = rows.map((r) => ({
+    setSaving(true);
+    setSaveStatus(null);
+
+    const tradingPairs: GuiPairPolicy[] = nextRows.map((r) => ({
       base: r.swapped ? r.rel : r.base,
       rel: r.swapped ? r.base : r.rel,
       show: r.show,
@@ -387,37 +393,26 @@ function TradingPairsAdmin({ token }: { token: string }) {
         body: JSON.stringify({ trading_pairs: tradingPairs }),
       });
       const json = (await res.json()) as { ok: boolean; message?: string };
-      setSaveResult(json.ok ? "Pair settings saved to gui-policy.json." : (json.message ?? "Save failed."));
+      setSaveStatus({ ok: json.ok, message: json.ok ? "Applied." : (json.message ?? "Save failed.") });
       if (json.ok) {
-        // Also sync the Orders-page localStorage overrides so the two pages
-        // immediately reflect the same effective state without a hard refresh.
-        try {
-          const raw = localStorage.getItem("kcb:pair-overrides");
-          const lsOverrides: Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }> =
-            raw ? (JSON.parse(raw) as Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }>) : {};
-
-          for (const r of rows) {
-            const key = `${r.base}/${r.rel}`;
-            const existing = lsOverrides[key] ?? {};
-            lsOverrides[key] = {
-              ...existing,
-              hidden: !r.show,
-              showAllOrders: r.showAllOrders,
-            };
-          }
-          localStorage.setItem("kcb:pair-overrides", JSON.stringify(lsOverrides));
-        } catch {
-          // localStorage unavailable — not critical.
-        }
-
-        // Allow rows to re-sync from server on the next poll cycle.
         setIsDirty(false);
       }
     } catch {
-      setSaveResult("Failed to contact gui-policy endpoint.");
+      setSaveStatus({ ok: false, message: "Failed to contact gui-policy endpoint." });
     } finally {
       setSaving(false);
     }
+  }
+
+  /**
+   * Apply a change to one row immediately: update state, sync localStorage,
+   * and save to the API if a token is available.
+   */
+  function patchRow(base: string, rel: string, patch: Partial<PairRow>) {
+    const nextRows = rows.map((r) => (r.base === base && r.rel === rel ? { ...r, ...patch } : r));
+    setRows(nextRows);
+    setIsDirty(true);
+    void saveRows(nextRows);
   }
 
   if (!pairs || pairs.length === 0) {
@@ -433,8 +428,10 @@ function TradingPairsAdmin({ token }: { token: string }) {
     <section className="card">
       <h2>Trading pairs</h2>
       <p className="muted" style={{ marginBottom: "0.6rem" }}>
-        Configure display settings for each pair. Save to persist in{" "}
-        <code>gui-policy.json</code>. Requires admin token.
+        Changes apply immediately.{" "}
+        {token
+          ? "Settings are persisted to gui-policy.json."
+          : "Enter admin token above to also persist to gui-policy.json."}
       </p>
       <table className="table">
         <thead>
@@ -479,14 +476,15 @@ function TradingPairsAdmin({ token }: { token: string }) {
           })}
         </tbody>
       </table>
-      <div className="controls" style={{ marginTop: "0.8rem" }}>
-        <button onClick={() => void onSave()} disabled={saving || !token}>
-          {saving ? "Saving…" : "Save to gui-policy.json"}
-        </button>
-        {!token ? <span className="muted">Enter admin token above to enable save.</span> : null}
-      </div>
-      {saveResult ? (
-        <p className="muted" style={{ marginTop: "0.5rem" }}>{saveResult}</p>
+      {saving ? (
+        <p className="muted" style={{ marginTop: "0.5rem", fontSize: "0.85em" }}>Saving…</p>
+      ) : saveStatus ? (
+        <p
+          className={saveStatus.ok ? "ok" : "muted"}
+          style={{ marginTop: "0.5rem", fontSize: "0.85em" }}
+        >
+          {saveStatus.message}
+        </p>
       ) : null}
     </section>
   );

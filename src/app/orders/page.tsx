@@ -149,6 +149,9 @@ function PairSection({
             {visibleAsks.map((e) => (
               <OrderEntry key={`ask-${e.uuid}`} entry={e} label={`Ask (sell ${displayBase})`} />
             ))}
+            <tr className="ltp-row">
+              <td colSpan={3}>— LTP —</td>
+            </tr>
             {visibleBids.map((e) => (
               <OrderEntry key={`bid-${e.uuid}`} entry={e} label={`Bid (buy ${displayBase})`} />
             ))}

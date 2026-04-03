@@ -150,6 +150,19 @@ a {
   font-weight: 500;
 }
 
+/* Separator between asks and bids in the orderbook table */
+.table tr.ltp-row td {
+  border-top: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  text-align: center;
+  font-weight: bold;
+  font-size: 0.8em;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 0.35rem 0.2rem;
+  background: var(--surface-soft);
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

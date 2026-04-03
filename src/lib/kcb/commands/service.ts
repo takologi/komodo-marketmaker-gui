@@ -407,8 +407,35 @@ async function enqueueBootstrapApplyIfNeeded(source: "startup" | "restart_kdf"):
   const result = await withStoreLock(async () => {
     const store = await loadStore();
 
+    // On startup: a "running" apply_bootstrap with no finished_at is a stale
+    // record left by a previous process crash. Reset it so it doesn't block
+    // the fresh bootstrap.
+    if (source === "startup") {
+      const staleRunning = store.commands.find(
+        (cmd) => cmd.type === "apply_bootstrap" && cmd.status === "running" && !cmd.finished_at,
+      );
+      if (staleRunning) {
+        staleRunning.status = "failed";
+        staleRunning.error_message = "Stale running state detected on startup; reset to failed";
+        staleRunning.finished_at = new Date().toISOString();
+        await saveStore(store);
+        await logDebugEvent({
+          severity: "warning",
+          title: "KCB stale bootstrap reset",
+          body: "Found an apply_bootstrap command stuck in 'running' state from a previous run; reset to failed",
+          details: { id: staleRunning.id },
+        });
+      }
+    }
+
+    // After a KDF restart: a previously-queued apply_bootstrap is still valid
+    // (it will run on the fresh KDF). Skip only if it is already queued.
+    // A "running" bootstrap was running against the old KDF and may complete
+    // with errors; queue a fresh one so it also runs on the new KDF.
+    const skipStatuses = source === "restart_kdf" ? ["queued"] : ["queued", "running"];
+
     const existing = store.commands.find(
-      (cmd) => cmd.type === "apply_bootstrap" && (cmd.status === "queued" || cmd.status === "running"),
+      (cmd) => cmd.type === "apply_bootstrap" && skipStatuses.includes(cmd.status),
     );
 
     if (existing) {
