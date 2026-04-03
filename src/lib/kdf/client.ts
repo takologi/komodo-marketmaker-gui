@@ -292,6 +292,29 @@ export async function fetchOrderbookRaw(base: string, rel: string): Promise<Orde
   return callKdfRpc<OrderbookRaw>("orderbook", { base, rel });
 }
 
+// ---------------------------------------------------------------------------
+// Taker order primitives
+// ---------------------------------------------------------------------------
+
+export interface PlaceTakerOrderParams {
+  base: string;
+  rel: string;
+  /** Minimum rel per base the taker will accept (sell) or maximum willing to pay (buy). */
+  price: string;
+  /** Base coin amount as a decimal string. */
+  volume: string;
+  [key: string]: string;
+}
+
+/**
+ * Place a taker sell order via KDF `sell`.
+ * Sells `volume` of `base` for at least `price` of `rel` per base unit.
+ * KDF will broadcast the request on P2P and match against existing makers.
+ */
+export async function placeTakerSell(params: PlaceTakerOrderParams): Promise<JsonObject> {
+  return callKdfRpc<JsonObject>("sell", params);
+}
+
 export interface StatusViewRaw {
   [key: string]: JsonValue;
 }

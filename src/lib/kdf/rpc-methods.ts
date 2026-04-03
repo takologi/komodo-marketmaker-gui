@@ -88,6 +88,18 @@ export const KDF_RPC_METHOD_SPECS: Record<string, KdfRpcMethodSpec> = {
     description: "Cancel all maker orders, optionally scoped to a single base/rel pair",
     requiresPayload: true,
   },
+  sell: {
+    method: "sell",
+    apiVersion: "legacy",
+    description: "Place a taker sell order: sell base to receive rel",
+    requiresPayload: true,
+  },
+  buy: {
+    method: "buy",
+    apiVersion: "legacy",
+    description: "Place a taker buy order: buy base by spending rel",
+    requiresPayload: true,
+  },
 };
 
 export const DEFAULT_KDF_RPC_METHOD_SPEC: KdfRpcMethodSpec = {

@@ -2,7 +2,14 @@ import "server-only";
 
 import { logDebugEvent } from "@/lib/debug/logger";
 import { DirectOrderConfig, OrderbookEntry, PairOrderbook } from "@/lib/kcb/types";
-import { cancelAllOrdersForPair, fetchOrderbookRaw, fetchOrdersRaw, setMakerOrder } from "@/lib/kdf/client";
+import {
+  cancelAllOrdersForPair,
+  fetchOrderbookRaw,
+  fetchOrdersRaw,
+  OrderbookRawEntry,
+  placeTakerSell,
+  setMakerOrder,
+} from "@/lib/kdf/client";
 import { asNumber, asString } from "@/lib/kdf/adapters/common";
 
 // ---------------------------------------------------------------------------
@@ -16,6 +23,81 @@ import { asNumber, asString } from "@/lib/kdf/adapters/common";
 // logic here before calling setMakerOrder, without changing the call structure
 // that interacts with KDF.
 // ---------------------------------------------------------------------------
+
+/**
+ * Volumes below this threshold are treated as zero (floating-point dust guard).
+ */
+const VOLUME_EPSILON = 1e-8;
+
+/**
+ * A single entry from the reverse orderbook that would cross the proposed order.
+ *
+ * For a proposed `BASE/REL @ P_ask` (P_ask in REL/BASE), crossing entries come
+ * from `orderbook(REL, BASE)` and satisfy:
+ *   entry.price (BASE per REL) <= 1 / P_ask
+ *
+ * Volumes (maxVolumeBase, minVolumeBase) are expressed in BASE units of the
+ * proposed order so they can be compared directly to `remaining`.
+ */
+interface CrossingEntry {
+  uuid: string;
+  /** KDF entry price: BASE of proposed order per REL of proposed order. */
+  priceBasePerRel: number;
+  /** Maximum BASE of proposed order we can sell to this entry. */
+  maxVolumeBase: number;
+  /** Minimum BASE of proposed order required by this entry. */
+  minVolumeBase: number;
+  /** True when this entry UUID belongs to our own maker orders. */
+  mine: boolean;
+}
+
+/**
+ * Fetch all entries from the reverse orderbook that would cross a proposed
+ * `BASE/REL @ askPrice` maker order.
+ *
+ * Math:
+ *   - Fetch `orderbook(REL, BASE)` → entries with price in BASE/REL
+ *   - Cross condition:  entry.price <= 1/askPrice
+ *   - Volume (in BASE): maxVolumeBase = entry.maxvolume × entry.price
+ *
+ * Result is sorted ascending by entry price (best fill rate first).
+ */
+async function fetchCrossingEntries(
+  base: string,
+  rel: string,
+  askPrice: number,
+  myUuids: Set<string>,
+): Promise<CrossingEntry[]> {
+  if (askPrice <= 0) return [];
+
+  const raw = await fetchOrderbookRaw(rel, base).catch(
+    (): { asks?: OrderbookRawEntry[] } => ({ asks: [] }),
+  );
+  const crossThreshold = 1 / askPrice;
+  const entries: CrossingEntry[] = [];
+
+  for (const entry of raw.asks ?? []) {
+    const p = asNumber(entry.price);
+    if (p <= 0 || p > crossThreshold) continue;
+
+    // entry.maxvolume is the REL-of-this-pair volume (= our order's REL).
+    // Multiply by p (BASE/REL) to get our BASE volume.
+    const maxVolumeBase = asNumber(entry.maxvolume) * p;
+    const minVolumeBase = asNumber(entry.min_volume) * p;
+    const uuid = asString(entry.uuid, "");
+
+    entries.push({
+      uuid,
+      priceBasePerRel: p,
+      maxVolumeBase,
+      minVolumeBase,
+      mine: uuid !== "" && myUuids.has(uuid),
+    });
+  }
+
+  entries.sort((a, b) => a.priceBasePerRel - b.priceBasePerRel);
+  return entries;
+}
 
 export interface DirectOrderResult {
   base: string;
@@ -85,17 +167,184 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
     }
   }
 
-  // --- Step 3: place each order -------------------------------------------
+  // --- Step 3: place each order with pre-flight crossing check ------------
+  //
+  // Before placing each order as a maker (setprice), we:
+  //   a) Fetch current my_orders UUIDs (re-fetched per order so orders placed
+  //      earlier in this batch are included in the self-cross check).
+  //   b) Scan the reverse orderbook for entries whose price crosses ours.
+  //   c) If any crossing entry is our own → refuse (self-cross protection).
+  //   d) For each crossing entry from others → place a taker `sell` to fill
+  //      against it, reducing our remaining volume.
+  //   e) Place setprice maker for any remaining volume.
+  //
+  // This is a single-pass implementation (one orderbook snapshot per order).
+  // Race conditions between the snapshot and taker broadcast are deferred.
   for (const order of orders) {
-    await logDebugEvent({
-      severity: "debug",
-      title: "KCB direct order placing",
-      body: `Placing maker order ${order.base}/${order.rel} @ ${order.price}`,
-      details: {
+    const askPrice = asNumber(order.price);
+
+    if (askPrice <= 0) {
+      await logDebugEvent({
+        severity: "error",
+        title: "KCB direct order invalid",
+        body: `Skipping order with invalid price: ${order.price}`,
+        details: { base: order.base, rel: order.rel, price: order.price },
+      });
+      results.push({
         base: order.base,
         rel: order.rel,
         price: order.price,
         volume: order.volume,
+        ok: false,
+        error: `Invalid price: ${order.price}`,
+      });
+      continue;
+    }
+
+    // Re-fetch my_orders each iteration: orders placed in prior iterations of
+    // this same batch must be considered candidates for self-cross detection.
+    let myUuids: Set<string>;
+    try {
+      const myOrdersRaw = await fetchOrdersRaw();
+      myUuids = new Set<string>(
+        myOrdersRaw
+          .map((o) => (typeof o.uuid === "string" ? o.uuid : ""))
+          .filter(Boolean),
+      );
+    } catch {
+      myUuids = new Set<string>();
+    }
+
+    // Pre-flight: find all crossing entries in the reverse orderbook.
+    let crossingEntries: CrossingEntry[];
+    try {
+      crossingEntries = await fetchCrossingEntries(
+        order.base,
+        order.rel,
+        askPrice,
+        myUuids,
+      );
+    } catch {
+      crossingEntries = [];
+    }
+
+    // Self-cross check: refuse the entire order if any crossing entry is ours.
+    // (KDF prevents same-instance self-matching, so placing this as a taker
+    // would leave an unmatched order; refusing proactively is the right call.)
+    const selfCrossEntry = crossingEntries.find((e) => e.mine);
+    if (selfCrossEntry) {
+      const msg =
+        `Order ${order.base}/${order.rel} @ ${order.price} crosses own maker ` +
+        `order ${selfCrossEntry.uuid} — refusing placement`;
+      await logDebugEvent({
+        severity: "warning",
+        title: "KCB direct order self-cross",
+        body: msg,
+        details: {
+          base: order.base,
+          rel: order.rel,
+          price: order.price,
+          crossingUuid: selfCrossEntry.uuid,
+        },
+      });
+      results.push({
+        base: order.base,
+        rel: order.rel,
+        price: order.price,
+        volume: order.volume,
+        ok: false,
+        error: msg,
+      });
+      continue;
+    }
+
+    // Opportunistic taker fills: iterate crossing entries (best price first)
+    // and place `sell` takers to consume them before placing our maker residual.
+    let remaining = asNumber(order.volume);
+
+    for (const entry of crossingEntries) {
+      if (remaining <= VOLUME_EPSILON) break;
+
+      const fillVol = Math.min(remaining, entry.maxVolumeBase);
+
+      if (fillVol < entry.minVolumeBase) {
+        await logDebugEvent({
+          severity: "debug",
+          title: "KCB taker fill skipped",
+          body: `Fill volume ${fillVol} below entry minimum ${entry.minVolumeBase}; skipping`,
+          details: { uuid: entry.uuid, fillVol, minVolumeBase: entry.minVolumeBase },
+        });
+        continue;
+      }
+
+      try {
+        const takerResult = await placeTakerSell({
+          base: order.base,
+          rel: order.rel,
+          price: order.price,
+          volume: String(fillVol),
+        });
+        const takerUuid =
+          typeof takerResult.uuid === "string" ? takerResult.uuid : undefined;
+        remaining -= fillVol;
+
+        await logDebugEvent({
+          severity: "info",
+          title: "KCB taker fill placed",
+          body:
+            `Placed sell taker ${order.base}/${order.rel} vol=${fillVol} ` +
+            `against maker ${entry.uuid}`,
+          details: {
+            base: order.base,
+            rel: order.rel,
+            fillVol,
+            makerUuid: entry.uuid,
+            takerUuid,
+          },
+        });
+      } catch (fillError) {
+        // Taker placement failed; remaining unchanged — will place as maker below.
+        await logDebugEvent({
+          severity: "warning",
+          title: "KCB taker fill failed",
+          body: `Failed to place sell taker against entry ${entry.uuid}; will place as maker`,
+          details: {
+            uuid: entry.uuid,
+            error: fillError instanceof Error ? fillError.message : String(fillError),
+          },
+        });
+      }
+    }
+
+    if (remaining <= VOLUME_EPSILON) {
+      // Entire volume filled via taker orders — no maker residual needed.
+      await logDebugEvent({
+        severity: "info",
+        title: "KCB direct order fully taker-filled",
+        body: `Order ${order.base}/${order.rel} @ ${order.price} fully consumed as taker`,
+        details: { base: order.base, rel: order.rel, price: order.price },
+      });
+      results.push({
+        base: order.base,
+        rel: order.rel,
+        price: order.price,
+        volume: order.volume,
+        ok: true,
+      });
+      continue;
+    }
+
+    // Place the remaining volume as a maker order.
+    await logDebugEvent({
+      severity: "debug",
+      title: "KCB direct order placing",
+      body: `Placing maker order ${order.base}/${order.rel} @ ${order.price} vol=${remaining}`,
+      details: {
+        base: order.base,
+        rel: order.rel,
+        price: order.price,
+        volume: remaining,
+        originalVolume: order.volume,
         min_volume: order.min_volume,
       },
     });
@@ -105,7 +354,7 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
         base: order.base,
         rel: order.rel,
         price: order.price,
-        volume: order.volume,
+        volume: String(remaining),
         // cancel_previous=false: we already cancelled the pair's orders above,
         // so multiple independent orders at different price levels can coexist.
         cancel_previous: false,
