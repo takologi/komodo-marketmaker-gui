@@ -26,6 +26,8 @@ export function usePolling<T>(url: string): PollingState<T> {
   }, []);
 
   const fetchData = useCallback(async () => {
+    // Skip fetch when no URL is provided (e.g. polling is disabled).
+    if (!url) return;
     try {
       const response = await fetch(url, { cache: "no-store" });
       const json = (await response.json()) as UiApiResponse<T>;
@@ -45,13 +47,19 @@ export function usePolling<T>(url: string): PollingState<T> {
   }, [url]);
 
   useEffect(() => {
+    // Clear stale data from the previous URL so we never show mismatched
+    // pair labels + old prices/volumes while a re-fetch is in flight.
+    setData(null);
+    setLoading(!!url);
+    setError(null);
+
     void fetchData();
     const timer = setInterval(() => {
       void fetchData();
     }, pollMs);
 
     return () => clearInterval(timer);
-  }, [fetchData, pollMs]);
+  }, [fetchData, pollMs, url]);
 
   return { data, loading, error, fetchedAt, refresh: fetchData };
 }

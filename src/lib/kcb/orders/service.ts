@@ -139,28 +139,48 @@ export async function buildAnnotatedOrderbook(base: string, rel: string): Promis
       .filter(Boolean),
   );
 
+  /**
+   * Normalise a raw KDF orderbook entries array into typed OrderbookEntry objects.
+   *
+   * @param invertPriceVolume - Pass true for bid entries fetched from
+   *   orderbook(rel, base). KDF returns those prices in (base/rel) units;
+   *   we need to invert both price and volume so they are expressed in the
+   *   same (rel/base) frame as the asks:
+   *     display_price  = 1 / raw_price
+   *     display_volume = raw_volume × raw_price   (converts rel units → base units)
+   */
   function normaliseEntries(
     entries: typeof asksRaw.asks,
     sortDescending: boolean,
+    invertPriceVolume = false,
   ): OrderbookEntry[] {
-    const items: OrderbookEntry[] = (entries ?? []).map((entry) => ({
-      uuid: asString(entry.uuid, ""),
-      price: asNumber(entry.price),
-      volume: asNumber(entry.maxvolume ?? entry.min_volume),
-      mine: Boolean(entry.uuid && myUuids.has(String(entry.uuid))),
-    }));
+    const items: OrderbookEntry[] = (entries ?? []).map((entry) => {
+      const rawPrice = asNumber(entry.price);
+      const rawVolume = asNumber(entry.maxvolume ?? entry.min_volume);
+      const price = invertPriceVolume && rawPrice !== 0 ? 1 / rawPrice : rawPrice;
+      const volume = invertPriceVolume && rawPrice !== 0 ? rawVolume * rawPrice : rawVolume;
+      return {
+        uuid: asString(entry.uuid, ""),
+        price,
+        volume,
+        mine: Boolean(entry.uuid && myUuids.has(String(entry.uuid))),
+      };
+    });
 
     items.sort((a, b) => sortDescending ? b.price - a.price : a.price - b.price);
     return items;
   }
 
-  // Asks: entries from orderbook(base, rel) — sorted price ascending.
+  // Asks: entries from orderbook(base, rel) — price in (rel/base), volume in base.
+  // Sorted price ascending.
   const asks = normaliseEntries(asksRaw.asks, false);
 
-  // Bids: entries from orderbook(rel, base) where THEY offer rel for base —
-  // which from the base/rel perspective means they are buying base.
+  // Bids: entries from orderbook(rel, base) — their prices are in (base/rel) units
+  // (inverted vs. what we want to display). Pass invertPriceVolume=true so that
+  //   display_price  = 1 / raw_price      (converts to rel/base)
+  //   display_volume = raw_volume × raw_price  (converts from rel units to base units)
   // Sorted price descending (best bid first).
-  const bids = normaliseEntries(bidsRaw.asks, true);
+  const bids = normaliseEntries(bidsRaw.asks, true, true);
 
   await logDebugEvent({
     severity: "debug",
