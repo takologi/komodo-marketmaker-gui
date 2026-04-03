@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Nav } from "@/components/nav";
 import { ErrorState, LoadingState } from "@/components/states";
@@ -14,6 +14,7 @@ import { OrderbookEntry, PairOrderbook, ResolvedPair } from "@/lib/kcb/types";
 interface PairOverride {
   /** When true, base and rel are visually swapped. */
   swapped: boolean;
+  /** When true, this pair's section is removed from the Orders page. */
   hidden: boolean;
   showAllOrders: boolean;
 }
@@ -67,16 +68,15 @@ function PairSection({
   pair,
   override,
   onSwap,
-  onToggleHide,
+  onHide,
   onToggleAllOrders,
 }: {
   pair: ResolvedPair;
   override: PairOverride;
   onSwap: () => void;
-  onToggleHide: () => void;
+  onHide: () => void;
   onToggleAllOrders: () => void;
 }) {
-  const effectiveShow = !override.hidden;
   const effectiveShowAll = override.showAllOrders;
   const displayBase = override.swapped ? pair.rel : pair.base;
   const displayRel = override.swapped ? pair.base : pair.rel;
@@ -84,25 +84,40 @@ function PairSection({
   const { data: orderbookData, loading, error } = useOrderbook(
     displayBase,
     displayRel,
-    effectiveShow,
+    true,
   );
 
   const asks = orderbookData?.asks ?? [];
   const bids = orderbookData?.bids ?? [];
-  const visibleAsks = effectiveShowAll ? asks : asks.filter((e) => e.mine);
-  const visibleBids = effectiveShowAll ? bids : bids.filter((e) => e.mine);
+
+  const mineAsks = asks.filter((e) => e.mine);
+  const mineBids = bids.filter((e) => e.mine);
+  const visibleAsks = effectiveShowAll ? asks : mineAsks;
+  const visibleBids = effectiveShowAll ? bids : mineBids;
+
+  const totalOrders = asks.length + bids.length;
+  const mineOrders = mineAsks.length + mineBids.length;
 
   return (
     <div className="card" style={{ marginBottom: "1rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
         <h3 style={{ margin: 0 }}>
           {displayBase}/{displayRel}
+          {orderbookData ? (
+            <span
+              className="muted"
+              style={{ fontWeight: "normal", fontSize: "0.8em", marginLeft: "0.5em" }}
+              title={`${mineOrders} of your orders / ${totalOrders} total orders`}
+            >
+              ({mineOrders}/{totalOrders})
+            </span>
+          ) : null}
         </h3>
         <button onClick={onSwap} title="Swap pair direction" style={{ fontSize: "0.8em" }}>
           ⇄ Swap sides
         </button>
         <label style={{ fontSize: "0.85em", display: "flex", alignItems: "center", gap: "0.3rem" }}>
-          <input type="checkbox" checked={!override.hidden} onChange={onToggleHide} />
+          <input type="checkbox" checked onChange={onHide} />
           Visible
         </label>
         <label style={{ fontSize: "0.85em", display: "flex", alignItems: "center", gap: "0.3rem" }}>
@@ -111,14 +126,16 @@ function PairSection({
         </label>
       </div>
 
-      {!effectiveShow ? (
-        <p className="muted" style={{ marginTop: "0.5rem" }}>Pair hidden.</p>
-      ) : loading ? (
+      {loading ? (
         <LoadingState />
       ) : error ? (
         <ErrorState message={error} />
       ) : visibleAsks.length === 0 && visibleBids.length === 0 ? (
-        <p className="muted" style={{ marginTop: "0.5rem" }}>No orders for this pair.</p>
+        <p className="muted" style={{ marginTop: "0.5rem" }}>
+          {effectiveShowAll
+            ? "No orders for this pair."
+            : "No your orders for this pair. Enable \u201cShow all orders\u201d to see others."}
+        </p>
       ) : (
         <table className="table" style={{ marginTop: "0.6rem" }}>
           <thead>
@@ -157,17 +174,55 @@ export default function OrdersPage() {
     setOverrides(loadOverrides());
   }, []);
 
+  // When a pair's server-side `show` transitions from false → true (Admin made
+  // it visible again), clear any localStorage hidden override for that pair so
+  // it reappears on the Orders page without requiring a manual localStorage clear.
+  const prevShowRef = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!pairs) return;
+    const cleared: string[] = [];
+    for (const pair of pairs) {
+      const key = pairKey(pair.base, pair.rel);
+      if (prevShowRef.current[key] === false && pair.show === true) {
+        cleared.push(key);
+      }
+      prevShowRef.current[key] = pair.show;
+    }
+    if (cleared.length > 0) {
+      setOverrides((curr) => {
+        const updated = { ...curr };
+        for (const key of cleared) {
+          if (updated[key]) {
+            updated[key] = { ...updated[key], hidden: false };
+          }
+        }
+        saveOverrides(updated);
+        return updated;
+      });
+    }
+  }, [pairs]);
+
   const getOverride = useCallback(
-    (base: string, rel: string): PairOverride => {
-      const key = pairKey(base, rel);
-      return overrides[key] ?? { swapped: false, hidden: false, showAllOrders: false };
+    (pair: ResolvedPair): PairOverride => {
+      const key = pairKey(pair.base, pair.rel);
+      const stored = overrides[key];
+      if (stored) return stored;
+      return {
+        swapped: false,
+        hidden: !pair.show,
+        showAllOrders: pair.show_all_orders,
+      };
     },
     [overrides],
   );
 
-  function updateOverride(base: string, rel: string, patch: Partial<PairOverride>) {
-    const key = pairKey(base, rel);
-    const current = overrides[key] ?? { swapped: false, hidden: false, showAllOrders: false };
+  function updateOverride(pair: ResolvedPair, patch: Partial<PairOverride>) {
+    const key = pairKey(pair.base, pair.rel);
+    const current = overrides[key] ?? {
+      swapped: false,
+      hidden: !pair.show,
+      showAllOrders: pair.show_all_orders,
+    };
     const updated = { ...overrides, [key]: { ...current, ...patch } };
     setOverrides(updated);
     saveOverrides(updated);
@@ -192,6 +247,8 @@ export default function OrdersPage() {
   }
 
   const resolvedPairs = pairs ?? [];
+  const visiblePairs = resolvedPairs.filter((pair) => !getOverride(pair).hidden);
+  const hiddenCount = resolvedPairs.length - visiblePairs.length;
 
   return (
     <main className="page">
@@ -204,32 +261,25 @@ export default function OrdersPage() {
             started.
           </p>
         ) : null}
+        {hiddenCount > 0 ? (
+          <p className="muted" style={{ fontSize: "0.85em" }}>
+            {hiddenCount} pair{hiddenCount > 1 ? "s" : ""} hidden — go to{" "}
+            <a href="/admin">Admin &rsaquo; Trading pairs</a> to restore visibility.
+          </p>
+        ) : null}
       </section>
 
-      {resolvedPairs.map((pair) => {
-        const stored = getOverride(pair.base, pair.rel);
-        const override: PairOverride = {
-          swapped: stored.swapped,
-          // Prefer localStorage value if it has been explicitly set, else use bootstrap/gui-policy default.
-          hidden: Object.prototype.hasOwnProperty.call(overrides, pairKey(pair.base, pair.rel))
-            ? stored.hidden
-            : !pair.show,
-          showAllOrders: Object.prototype.hasOwnProperty.call(
-            overrides,
-            pairKey(pair.base, pair.rel),
-          )
-            ? stored.showAllOrders
-            : pair.show_all_orders,
-        };
+      {visiblePairs.map((pair) => {
+        const override = getOverride(pair);
         return (
           <PairSection
             key={pairKey(pair.base, pair.rel)}
             pair={pair}
             override={override}
-            onSwap={() => updateOverride(pair.base, pair.rel, { swapped: !override.swapped })}
-            onToggleHide={() => updateOverride(pair.base, pair.rel, { hidden: !override.hidden })}
+            onSwap={() => updateOverride(pair, { swapped: !override.swapped })}
+            onHide={() => updateOverride(pair, { hidden: true })}
             onToggleAllOrders={() =>
-              updateOverride(pair.base, pair.rel, { showAllOrders: !override.showAllOrders })
+              updateOverride(pair, { showAllOrders: !override.showAllOrders })
             }
           />
         );
@@ -237,5 +287,7 @@ export default function OrdersPage() {
     </main>
   );
 }
+
+
 
 

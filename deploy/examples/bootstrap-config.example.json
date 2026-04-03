@@ -29,7 +29,37 @@
           }
         ]
       }
+    },
+    {
+      "coin": "LTC",
+      "activation": {
+        "method": "electrum",
+        "params": {
+          "tx_history": true
+        }
+      }
+    },
+    {
+      "coin": "BTC",
+      "activation": {
+        "method": "electrum",
+        "params": {
+          "tx_history": true
+        }
+      }
     }
+  ],
+  "direct_orders": [
+    { "base": "DOC", "rel": "MARTY", "price": "1.1", "volume": "1" },
+    { "base": "DOC", "rel": "MARTY", "price": "1.2", "volume": "1" },
+    { "base": "DOC", "rel": "MARTY", "price": "1.3", "volume": "1" },
+    { "base": "DOC", "rel": "MARTY", "price": "1.4", "volume": "1" },
+    { "base": "DOC", "rel": "MARTY", "price": "1.5", "volume": "1" },
+    { "base": "MARTY", "rel": "DOC", "price": "0.9", "volume": "1" },
+    { "base": "MARTY", "rel": "DOC", "price": "0.8", "volume": "1" },
+    { "base": "MARTY", "rel": "DOC", "price": "0.7", "volume": "1" },
+    { "base": "MARTY", "rel": "DOC", "price": "0.6", "volume": "1" },
+    { "base": "MARTY", "rel": "DOC", "price": "0.5", "volume": "1" }
   ],
   "simple_mm": {
     "enabled": true,
@@ -39,6 +69,20 @@
         "DOC/MARTY": {
           "base": "DOC",
           "rel": "MARTY",
+          "max": true,
+          "min_volume": {
+            "percentage": "0.25"
+          },
+          "spread": "1.01",
+          "base_confs": 1,
+          "base_nota": false,
+          "rel_confs": 1,
+          "rel_nota": false,
+          "enable": true
+        },
+        "LTC/BTC": {
+          "base": "LTC",
+          "rel": "BTC",
           "max": true,
           "min_volume": {
             "percentage": "0.25"

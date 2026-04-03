@@ -6,7 +6,7 @@ import { rename } from "node:fs/promises";
 import { applyBootstrapConfig } from "@/lib/kcb/bootstrap/service";
 import { refreshCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getCommandRetentionSeconds } from "@/lib/kcb/env";
-import { restartKdfViaSystem } from "@/lib/kcb/kdf-control";
+import { restartKdfViaSystem, waitForKdfReady } from "@/lib/kcb/kdf-control";
 import { kcbPaths } from "@/lib/kcb/paths";
 import { ensureKcbLayout, readJsonFile, writeJsonFile } from "@/lib/kcb/storage";
 import { CommandPriority, KcbCommandRecord } from "@/lib/kcb/types";
@@ -213,6 +213,10 @@ function notifyCommandFailure(type: KcbCommandType, message: string): void {
 async function execute(type: KcbCommandType): Promise<JsonObject> {
   if (type === "restart_kdf") {
     const output = await restartKdfViaSystem();
+    // Wait for KDF to accept RPC calls before the queue runner triggers
+    // apply_bootstrap. systemctl restart returns once the process starts,
+    // not once KDF's RPC listener is ready.
+    await waitForKdfReady();
     return { output };
   }
 

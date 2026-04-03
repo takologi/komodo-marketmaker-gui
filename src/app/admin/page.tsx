@@ -319,23 +319,27 @@ function TradingPairsAdmin({ token }: { token: string }) {
   const [rows, setRows] = useState<PairRow[]>([]);
   const [saveResult, setSaveResult] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Track whether the user has unsaved local edits. While dirty, incoming
+  // server updates do not overwrite the in-progress edits.
+  const [isDirty, setIsDirty] = useState(false);
 
-  // Initialise rows when pair list loads; keep local edits if already set.
+  // Sync rows from the latest server data whenever there are no unsaved edits.
   useEffect(() => {
     if (!pairs || pairs.length === 0) return;
-    setRows((current) => {
-      if (current.length > 0) return current;
-      return pairs.map((p) => ({
+    if (isDirty) return;
+    setRows(
+      pairs.map((p) => ({
         base: p.base,
         rel: p.rel,
         swapped: false,
         show: p.show,
         showAllOrders: p.show_all_orders,
-      }));
-    });
-  }, [pairs]);
+      })),
+    );
+  }, [pairs, isDirty]);
 
   function patchRow(base: string, rel: string, patch: Partial<PairRow>) {
+    setIsDirty(true);
     setRows((prev) =>
       prev.map((r) => (r.base === base && r.rel === rel ? { ...r, ...patch } : r)),
     );
@@ -365,6 +369,10 @@ function TradingPairsAdmin({ token }: { token: string }) {
       });
       const json = (await res.json()) as { ok: boolean; message?: string };
       setSaveResult(json.ok ? "Pair settings saved to gui-policy.json." : (json.message ?? "Save failed."));
+      if (json.ok) {
+        // Allow rows to re-sync from server on the next poll cycle.
+        setIsDirty(false);
+      }
     } catch {
       setSaveResult("Failed to contact gui-policy endpoint.");
     } finally {

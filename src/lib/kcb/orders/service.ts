@@ -2,7 +2,7 @@ import "server-only";
 
 import { logDebugEvent } from "@/lib/debug/logger";
 import { DirectOrderConfig, OrderbookEntry, PairOrderbook } from "@/lib/kcb/types";
-import { fetchOrderbookRaw, fetchOrdersRaw, setMakerOrder } from "@/lib/kdf/client";
+import { cancelAllOrdersForPair, fetchOrderbookRaw, fetchOrdersRaw, setMakerOrder } from "@/lib/kdf/client";
 import { asNumber, asString } from "@/lib/kdf/adapters/common";
 
 // ---------------------------------------------------------------------------
@@ -32,16 +32,60 @@ export interface DirectOrderResult {
 /**
  * Apply a list of direct order configurations from bootstrap config.
  *
- * Each order calls KDF `setprice` with `cancel_previous=true`, which cancels
- * any existing maker order for the same base/rel pair before creating a new one.
- * This makes apply idempotent: running it twice leaves exactly one order per pair.
+ * Strategy (idempotent, supports multiple price levels per pair):
+ *   1. Group orders by (base, rel) pair.
+ *   2. For each unique pair, cancel ALL existing maker orders for that pair
+ *      via cancel_all_orders(Pair). This is safe to call even when no orders
+ *      exist.
+ *   3. Place every order in the group with cancel_previous=false. Since we
+ *      already cleared the slate in step 2, cancel_previous is not needed and
+ *      without it KDF places independent orders at each price level.
  *
- * Orders are placed sequentially to avoid racing KDF order state.
- * Failures are collected and returned; a single failed order does not abort the rest.
+ * This makes apply idempotent: running it twice results in exactly the orders
+ * defined in the config, regardless of what was there before.
+ *
+ * Orders within each pair are placed sequentially; failures are collected and
+ * returned without aborting the rest.
  */
 export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<DirectOrderResult[]> {
   const results: DirectOrderResult[] = [];
 
+  // --- Step 1: group by canonical (base, rel) key -------------------------
+  const groups = new Map<string, DirectOrderConfig[]>();
+  for (const order of orders) {
+    const key = `${order.base}/${order.rel}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.push(order);
+    } else {
+      groups.set(key, [order]);
+    }
+  }
+
+  // --- Step 2: cancel all existing orders for each unique pair ------------
+  for (const [key, group] of groups) {
+    const { base, rel } = group[0];
+    try {
+      const cancelled = await cancelAllOrdersForPair(base, rel);
+      await logDebugEvent({
+        severity: "debug",
+        title: "KCB direct orders pre-cancel",
+        body: `Cancelled ${cancelled.length} existing order(s) for ${key} before re-placing`,
+        details: { base, rel, cancelledCount: cancelled.length, cancelledUuids: cancelled },
+      });
+    } catch (error) {
+      // Non-fatal: if cancel fails the subsequent setprice calls will still
+      // work (they'll create additional orders). Log and continue.
+      await logDebugEvent({
+        severity: "warning",
+        title: "KCB direct orders pre-cancel failed",
+        body: `Failed to cancel existing orders for ${key}; placing orders anyway`,
+        details: { base, rel, error: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  }
+
+  // --- Step 3: place each order -------------------------------------------
   for (const order of orders) {
     await logDebugEvent({
       severity: "debug",
@@ -62,6 +106,9 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
         rel: order.rel,
         price: order.price,
         volume: order.volume,
+        // cancel_previous=false: we already cancelled the pair's orders above,
+        // so multiple independent orders at different price levels can coexist.
+        cancel_previous: false,
         ...(order.min_volume !== undefined && { min_volume: order.min_volume }),
         ...(order.base_confs !== undefined && { base_confs: order.base_confs }),
         ...(order.base_nota !== undefined && { base_nota: order.base_nota }),
@@ -69,7 +116,6 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
         ...(order.rel_nota !== undefined && { rel_nota: order.rel_nota }),
       });
 
-      // KDF setprice returns the created order object directly (doRpcCall unwraps result).
       const uuid = typeof response.uuid === "string" ? response.uuid : undefined;
 
       await logDebugEvent({

@@ -263,6 +263,31 @@ export interface OrderbookRaw {
  * Fetch the orderbook for a single directional pair.
  * Returns the raw KDF payload; callers are responsible for normalisation.
  */
+/**
+ * Cancel all maker orders for a specific base/rel pair.
+ * Returns the list of cancelled order UUIDs.
+ */
+export async function cancelAllOrdersForPair(
+  base: string,
+  rel: string,
+): Promise<string[]> {
+  const result = await callKdfRpc<JsonObject>("cancel_all_orders", {
+    cancel_by: { type: "Pair", data: { base, rel } },
+  });
+  const cancelled = result.cancelled;
+  if (Array.isArray(cancelled)) {
+    return cancelled.filter((id): id is string => typeof id === "string");
+  }
+  // KDF sometimes nests inside result.result
+  if (result.result && typeof result.result === "object" && !Array.isArray(result.result)) {
+    const inner = (result.result as JsonObject).cancelled;
+    if (Array.isArray(inner)) {
+      return inner.filter((id): id is string => typeof id === "string");
+    }
+  }
+  return [];
+}
+
 export async function fetchOrderbookRaw(base: string, rel: string): Promise<OrderbookRaw> {
   return callKdfRpc<OrderbookRaw>("orderbook", { base, rel });
 }

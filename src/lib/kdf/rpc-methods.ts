@@ -82,6 +82,12 @@ export const KDF_RPC_METHOD_SPECS: Record<string, KdfRpcMethodSpec> = {
     description: "Fetch all maker orders for a base/rel pair from all participants",
     requiresPayload: true,
   },
+  cancel_all_orders: {
+    method: "cancel_all_orders",
+    apiVersion: "legacy",
+    description: "Cancel all maker orders, optionally scoped to a single base/rel pair",
+    requiresPayload: true,
+  },
 };
 
 export const DEFAULT_KDF_RPC_METHOD_SPEC: KdfRpcMethodSpec = {
