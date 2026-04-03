@@ -27,6 +27,10 @@ This app follows a strict proxy boundary:
   - Priority queue (`high`, `normal`), serial command execution, retention cleanup.
 - `src/lib/kdf/adapters/*`
   - Maps raw RPC payloads into stable UI view models.
+- `src/lib/kcb/orders/service.ts`
+  - Direct order placement with pre-flight crossing check and popup notifications.
+- `src/lib/kcb/orders/watcher.ts`
+  - Background watcher that detects external taker fills on KCB-placed maker orders.
 - `src/lib/system/restart.ts`
   - Server-only restart action with environment guard.
 - `src/app/api/*`

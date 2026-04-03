@@ -1,7 +1,12 @@
 import "server-only";
 
-import { logDebugEvent } from "@/lib/debug/logger";
+import { logDebugEvent, pushPopupNotification } from "@/lib/debug/logger";
 import { DirectOrderConfig, OrderbookEntry, PairOrderbook } from "@/lib/kcb/types";
+import {
+  ensureMakerOrderWatcherStarted,
+  markIntentionallyCancelled,
+  registerMakerOrderUuid,
+} from "@/lib/kcb/orders/watcher";
 import {
   cancelAllOrdersForPair,
   fetchOrderbookRaw,
@@ -144,11 +149,15 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
     }
   }
 
+  // Start the watcher that detects external taker fills on our maker orders.
+  ensureMakerOrderWatcherStarted();
+
   // --- Step 2: cancel all existing orders for each unique pair ------------
   for (const [key, group] of groups) {
     const { base, rel } = group[0];
     try {
       const cancelled = await cancelAllOrdersForPair(base, rel);
+      markIntentionallyCancelled(cancelled);
       await logDebugEvent({
         severity: "debug",
         title: "KCB direct orders pre-cancel",
@@ -247,6 +256,13 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
           crossingUuid: selfCrossEntry.uuid,
         },
       });
+      pushPopupNotification({
+        severity: "warning",
+        title: "Order refused — self-cross",
+        body:
+          `${order.base}/${order.rel} @ ${order.price} was refused because it ` +
+          `crosses your own maker order (${selfCrossEntry.uuid})`,
+      });
       results.push({
         base: order.base,
         rel: order.rel,
@@ -301,6 +317,13 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
             makerUuid: entry.uuid,
             takerUuid,
           },
+        });
+        pushPopupNotification({
+          severity: "info",
+          title: "Taker fill placed",
+          body:
+            `Filling ${order.base}/${order.rel}: selling ${fillVol} ` +
+            `${order.base} against maker order ${entry.uuid}`,
         });
       } catch (fillError) {
         // Taker placement failed; remaining unchanged — will place as maker below.
@@ -372,6 +395,22 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
         title: "KCB direct order placed",
         body: `Maker order ${order.base}/${order.rel} placed`,
         details: { base: order.base, rel: order.rel, price: order.price, uuid },
+      });
+
+      if (uuid) {
+        registerMakerOrderUuid(uuid, {
+          base: order.base,
+          rel: order.rel,
+          price: order.price,
+        });
+      }
+      pushPopupNotification({
+        severity: "info",
+        title: "Maker order placed",
+        body:
+          `${order.base}/${order.rel} @ ${order.price} — ` +
+          `vol ${remaining} ${order.base}` +
+          (uuid ? ` (${uuid.slice(0, 8)}…)` : ""),
       });
 
       results.push({

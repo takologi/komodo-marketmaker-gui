@@ -80,3 +80,68 @@ Limitations (current phase):
 - Legacy `/api/kdf/*` routes are retained as compatibility wrappers and now delegate to KCB.
 - `/admin` restart now queues a high-priority KCB command.
 - `/commands` page displays queue/history and supports queueing selected commands.
+
+## Direct orders
+
+Direct orders are verbatim maker orders defined in `bootstrap-config.json` under `direct_orders`.
+They are applied as part of the bootstrap flow (including on startup) via `applyDirectOrders` in
+`src/lib/kcb/orders/service.ts`.
+
+### Apply strategy
+
+1. Group orders by `(base, rel)` pair.
+2. Cancel all existing maker orders for each group via `cancel_all_orders(Pair)` — returns the
+   actually-cancelled UUIDs, which are registered as intentionally cancelled so the watcher does
+   not generate a "filled" popup for them.
+3. Place each order in the group with `cancel_previous=false`. All orders for a pair coexist as
+   independent price levels.
+
+### Pre-flight crossing check
+
+Before placing each order as a `setprice` maker, KCB scans the reverse orderbook for entries
+that would cross the proposed price:
+
+- **Cross condition** for `BASE/REL @ P_ask` (P_ask in REL/BASE units):
+  fetch `orderbook(REL, BASE)` → entry crosses if `entry.price (BASE/REL) ≤ 1/P_ask`
+
+- **Self-cross (own maker)**: if any crossing entry UUID belongs to our own open orders, the
+  proposed order is **refused entirely** and a warning popup is shown. KDF prevents same-instance
+  self-matching, so placing such an order as a taker would leave it stuck.
+
+- **Other-cross (external maker)**: KCB places a `sell BASE/REL` taker order to consume each
+  crossing entry (best fill rate first, volumes converted to BASE units). Any volume not consumed
+  is then placed as the residual `setprice` maker.
+
+Price constraints for `direct_orders`:
+
+- `MARTY/DOC` bids must have price (MARTY/DOC) < `1/min(DOC/MARTY ask)` to avoid being refused.
+- Example: with DOC/MARTY asks at 1.1–1.5, valid MARTY/DOC bid prices start above 1/1.1 ≈ 0.909
+  expressed as MARTY/DOC. The example config uses 1.12, 1.30, 1.50, 1.75, 2.10.
+
+### Popup notifications
+
+Four user-facing popup events fire via `pushPopupNotification`:
+
+| Event | Severity | When |
+|-------|----------|------|
+| **Maker order placed** | `info` | `setprice` call succeeded; shows pair, price, volume, short UUID |
+| **Taker fill placed** | `info` | `sell` taker placed against a crossing external maker; shows pair, fill volume, maker UUID |
+| **Order refused — self-cross** | `warning` | Proposed order would cross own maker; shows pair, price, crossing UUID |
+| **Maker order taken** | `info` | Watcher detected an external taker filled our maker order (see below) |
+
+Popups are displayed in `DebugPopupCenter` (polled every 1.5 s, auto-close after
+`DEBUG_MESSAGE_TIMEOUT` seconds, default 8).
+
+## Maker order watcher
+
+`src/lib/kcb/orders/watcher.ts` runs a background interval (every 10 s) that:
+
+1. Fetches `my_orders` to get currently active order UUIDs.
+2. For each KCB-tracked UUID no longer present:
+   - If KCB cancelled it intentionally (registered via `markIntentionallyCancelled`): silent.
+   - Otherwise: fires a **"Maker order taken"** `info` popup — an external KDF instance
+     placed a taker order that matched and consumed our maker order.
+
+The watcher is started on the first `applyDirectOrders` call (including the startup bootstrap)
+and runs for the lifetime of the Next.js server process.
+
