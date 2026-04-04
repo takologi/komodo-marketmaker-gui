@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getBootstrapConfig } from "@/lib/kcb/bootstrap/service";
+import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
 import { getGuiPolicy } from "@/lib/kcb/gui-policy/service";
 import { ResolvedPair } from "@/lib/kcb/types";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
@@ -46,7 +46,20 @@ function extractSimpleMmPairs(startPayload: JsonValue | undefined): Array<{ base
 }
 
 export async function getResolvedPairs(): Promise<ResolvedPair[]> {
-  const [config, guiPolicy] = await Promise.all([getBootstrapConfig(), getGuiPolicy()]);
+  const [config, guiPolicy, lastApply] = await Promise.all([
+    getBootstrapConfig(),
+    getGuiPolicy(),
+    getLastApplyState(),
+  ]);
+
+  // Build coin → activation error map from last-apply errors.
+  const coinErrorMap = new Map<string, string>();
+  for (const msg of lastApply.errors) {
+    const match = /^activation failed for ([^:]+):\s*(.+)$/i.exec(msg);
+    if (match) {
+      coinErrorMap.set(match[1].toUpperCase().trim(), match[2].trim());
+    }
+  }
 
   // Maps normalised dedup key → first-seen direction + source.
   const seen = new Map<string, ResolvedPair>();
@@ -100,5 +113,9 @@ export async function getResolvedPairs(): Promise<ResolvedPair[]> {
     }
   }
 
-  return Array.from(seen.values());
+  return Array.from(seen.values()).map((pair) => ({
+    ...pair,
+    baseError: coinErrorMap.get(pair.base.toUpperCase()),
+    relError: coinErrorMap.get(pair.rel.toUpperCase()),
+  }));
 }

@@ -552,6 +552,28 @@ export async function fetchWalletsRaw(): Promise<WalletViewRaw[]> {
   return withBalances;
 }
 
+/**
+ * Fetch balance for a single coin. Returns null if the coin is not enabled or
+ * the RPC call fails for any reason. Safe to call speculatively.
+ */
+export async function fetchCoinBalanceSafe(ticker: string): Promise<WalletViewRaw | null> {
+  try {
+    const result = await doRpcCall<JsonValue>("my_balance", { coin: ticker });
+    if (isJsonObject(result)) {
+      return {
+        coin: result.coin ?? ticker,
+        ticker,
+        address: result.address,
+        balance: result.balance,
+        unspendable_balance: result.unspendable_balance,
+      } as WalletViewRaw;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchMovementsRaw(): Promise<MovementViewRaw[]> {
   const result = await doRpcCall<JsonValue>("my_recent_swaps");
   if (Array.isArray(result)) {

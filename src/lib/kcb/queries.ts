@@ -2,17 +2,19 @@ import "server-only";
 
 import { adaptOrders } from "@/lib/kdf/adapters/orders";
 import { adaptStatus } from "@/lib/kdf/adapters/status";
-import { adaptWallets } from "@/lib/kdf/adapters/wallets";
+import { WalletViewEnriched } from "@/lib/kdf/adapters/wallets";
 import { adaptMovements } from "@/lib/kdf/adapters/movements";
+import { asNumber, asString } from "@/lib/kdf/adapters/common";
 import {
   fetchOrdersRaw,
   fetchSimpleMmStatusOptional,
   fetchVersionOptional,
-  fetchWalletsRaw,
+  fetchCoinBalanceSafe,
   fetchMovementsRawWithAvailability,
   StatusViewRaw,
 } from "@/lib/kdf/client";
 import { ensureKcbLayout } from "@/lib/kcb/storage";
+import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
 
 interface PairStatus {
   pair: string;
@@ -151,10 +153,44 @@ export async function getKcbOrders() {
   return adaptOrders(raw);
 }
 
-export async function getKcbWallets() {
+export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
   await ensureKcbLayout();
-  const raw = await fetchWalletsRaw();
-  return adaptWallets(raw);
+  const [cfg, lastApply] = await Promise.all([getBootstrapConfig(), getLastApplyState()]);
+
+  // Build coin → activation error map from last-apply error strings.
+  // Expected format: "activation failed for BTC: <reason>"
+  const coinErrorMap = new Map<string, string>();
+  for (const msg of lastApply.errors) {
+    const match = /^activation failed for ([^:]+):\s*(.+)$/i.exec(msg);
+    if (match) {
+      coinErrorMap.set(match[1].toUpperCase().trim(), match[2].trim());
+    }
+  }
+
+  const results = await Promise.all(
+    cfg.coins.map(async (coinCfg): Promise<WalletViewEnriched> => {
+      const ticker = coinCfg.coin.toUpperCase();
+      const raw = await fetchCoinBalanceSafe(ticker);
+      if (raw) {
+        const balance = asNumber(raw.balance);
+        const unspendable = asNumber(raw.unspendable_balance, 0);
+        return {
+          coin: asString(raw.ticker ?? raw.coin, ticker),
+          activated: true,
+          address: asString(raw.address, undefined),
+          balance,
+          spendable: Math.max(0, balance - unspendable),
+        };
+      }
+      return {
+        coin: ticker,
+        activated: false,
+        error: coinErrorMap.get(ticker) ?? "Coin is not activated",
+      };
+    }),
+  );
+
+  return results;
 }
 
 export async function getKcbMovements() {

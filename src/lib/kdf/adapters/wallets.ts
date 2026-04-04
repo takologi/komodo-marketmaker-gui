@@ -8,6 +8,22 @@ export interface WalletView {
   spendable: number;
 }
 
+/** Enriched wallet entry — includes all bootstrap-configured coins, even those
+ *  that failed activation. `activated=false` entries carry an `error` string
+ *  instead of address/balance. */
+export interface WalletViewEnriched {
+  coin: string;
+  activated: boolean;
+  /** Wallet address — present only when `activated=true`. */
+  address?: string;
+  /** Total balance — present only when `activated=true`. */
+  balance?: number;
+  /** Spendable balance — present only when `activated=true`. */
+  spendable?: number;
+  /** Activation error message — present only when `activated=false`. */
+  error?: string;
+}
+
 export function adaptWallets(raw: WalletViewRaw[]): WalletView[] {
   return raw.map((row) => {
     const balance = asNumber(row.balance);

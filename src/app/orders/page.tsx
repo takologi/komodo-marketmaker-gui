@@ -100,6 +100,21 @@ function PairSection({
 
   return (
     <div className="card" style={{ marginBottom: "1rem" }}>
+      {(pair.baseError || pair.relError) && (
+        <p
+          className="error"
+          style={{ margin: "0 0 0.6rem", fontSize: "0.85em" }}
+          title="One or more coins in this pair failed activation"
+        >
+          ⚠ Activation issue:{" "}
+          {[
+            pair.baseError ? `${pair.base}: ${pair.baseError}` : null,
+            pair.relError ? `${pair.rel}: ${pair.relError}` : null,
+          ]
+            .filter(Boolean)
+            .join(" | ")}
+        </p>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
         <h3 style={{ margin: 0 }}>
           {displayBase}/{displayRel}

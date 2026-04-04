@@ -109,6 +109,10 @@ export interface ResolvedPair {
   show_all_orders: boolean;
   /** How this pair entered the resolved list. */
   source: "direct_orders" | "simple_mm_cfg" | "gui_policy";
+  /** Activation error for the base coin, if it failed to activate. */
+  baseError?: string;
+  /** Activation error for the rel coin, if it failed to activate. */
+  relError?: string;
 }
 
 // ---------------------------------------------------------------------------
