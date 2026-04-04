@@ -157,9 +157,9 @@ export async function refreshKdfCoinsFile(): Promise<{ writtenPath: string; sour
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   await logDebugEvent({
-    severity: "info",
+    severity: "warning",
     title: "KCB KDF coins file refresh",
-    body: "Fetching KDF coins file",
+    body: "Fetching KDF coins file from source",
     details: { url, targetPath },
   });
 
@@ -186,9 +186,9 @@ export async function refreshKdfCoinsFile(): Promise<{ writtenPath: string; sour
     await writeFile(targetPath, text, "utf8");
 
     await logDebugEvent({
-      severity: "info",
+      severity: "warning",
       title: "KCB KDF coins file written",
-      body: "KDF coins file successfully updated",
+      body: `KDF coins file written (${parsed.length} coins) → ${targetPath}`,
       details: { targetPath, itemCount: parsed.length, sourceUrl: url },
     });
 
@@ -217,7 +217,7 @@ export async function ensureKdfCoinsFile(): Promise<void> {
   try {
     await access(targetPath, FsConstants.F_OK);
     await logDebugEvent({
-      severity: "debug",
+      severity: "info",
       title: "KCB KDF coins file present",
       body: "KDF coins file already exists; skipping download",
       details: { targetPath },
