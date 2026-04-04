@@ -126,7 +126,11 @@ function serversFromCoinDefinition(coinDef: JsonObject | null): JsonValue[] | nu
     if (!node || typeof node !== "object" || Array.isArray(node)) continue;
     const entry = node as JsonObject;
     if (typeof entry.url !== "string" || !entry.url) continue;
-    servers.push({ url: entry.url });
+    const server: JsonObject = { url: entry.url };
+    if (typeof entry.protocol === "string" && entry.protocol) {
+      server.protocol = entry.protocol;
+    }
+    servers.push(server);
   }
 
   return servers.length > 0 ? servers : null;
