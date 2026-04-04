@@ -3,7 +3,7 @@ import "server-only";
 import { rename } from "node:fs/promises";
 
 import { logDebugEvent } from "@/lib/debug/logger";
-import { getCoinDefinitions, refreshCoinDefinitions } from "@/lib/kcb/coins/provider";
+import { getCoinDefinitions, refreshCoinDefinitions, ensureKdfCoinsFile } from "@/lib/kcb/coins/provider";
 import { activateCoin, startSimpleMmIfNeeded } from "@/lib/kcb/kdf-control";
 import { applyDirectOrders } from "@/lib/kcb/orders/service";
 import { kcbPaths } from "@/lib/kcb/paths";
@@ -357,6 +357,11 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
   await ensureKcbLayout();
   const cfg = await getBootstrapConfig();
   const errors = validateBootstrapConfig(cfg);
+
+  // Ensure the KDF coins file exists before activating any coin. KDF reads this
+  // file at startup; if it's missing, coin activations that depend on it will fail.
+  await ensureKdfCoinsFile();
+
   if (errors.length > 0) {
     await logDebugEvent({
       severity: "debug",

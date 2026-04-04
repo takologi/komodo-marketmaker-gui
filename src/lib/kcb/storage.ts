@@ -58,6 +58,7 @@ function defaultCoinSources(): CoinSourceConfig {
   return {
     coins_config_url: getKcbCoinsConfigUrl(),
     icons_base_url: getKcbIconsBaseUrl(),
+    kdf_coins_url: "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins",
   };
 }
 

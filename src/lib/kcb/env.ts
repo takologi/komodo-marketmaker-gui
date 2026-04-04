@@ -1,6 +1,7 @@
 import "server-only";
 
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 function parseMs(value: string | undefined, fallback: number): number {
   const parsed = value ? Number.parseInt(value, 10) : fallback;
@@ -14,6 +15,13 @@ function parseSeconds(value: string | undefined, fallback: number): number {
 
 export function getKcbConfigDir(): string {
   return process.env.KCB_CONFIG_DIR || `${homedir()}/.kcb`;
+}
+
+/** Path where KCB writes the KDF coins file.
+ *  Must match MM_COINS_PATH in the KDF service unit (or be the KDF app dir default ~/.kdf/coins).
+ *  Default: ~/.kdf/coins */
+export function getKdfCoinsPath(): string {
+  return process.env.KDF_COINS_PATH || join(homedir(), ".kdf", "coins");
 }
 
 export function getKcbCoinsConfigUrl(): string {

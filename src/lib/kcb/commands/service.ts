@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { rename } from "node:fs/promises";
 
 import { applyBootstrapConfig } from "@/lib/kcb/bootstrap/service";
-import { refreshCoinDefinitions } from "@/lib/kcb/coins/provider";
+import { refreshCoinDefinitions, refreshKdfCoinsFile } from "@/lib/kcb/coins/provider";
 import { getCommandRetentionSeconds } from "@/lib/kcb/env";
 import { restartKdfViaSystem, waitForKdfReady } from "@/lib/kcb/kdf-control";
 import { kcbPaths } from "@/lib/kcb/paths";
@@ -230,11 +230,27 @@ async function execute(type: KcbCommandType): Promise<JsonObject> {
     };
   }
 
-  const result = await refreshCoinDefinitions();
+  // Run both downloads concurrently; treat KDF coins file failure as non-fatal
+  // so a missing coins URL never blocks the coins_config refresh.
+  const [result, kdfCoinsResult] = await Promise.allSettled([
+    refreshCoinDefinitions(),
+    refreshKdfCoinsFile(),
+  ]);
+
+  if (result.status === "rejected") {
+    throw result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+  }
+
+  const kdfCoinsSummary: JsonObject =
+    kdfCoinsResult.status === "fulfilled"
+      ? { written_path: kdfCoinsResult.value.writtenPath, source_url: kdfCoinsResult.value.sourceUrl }
+      : { error: kdfCoinsResult.reason instanceof Error ? kdfCoinsResult.reason.message : String(kdfCoinsResult.reason) };
+
   return {
-    fetched_at: result.fetchedAt,
-    source_url: result.sourceUrl,
-    item_count: result.itemCount,
+    fetched_at: result.value.fetchedAt,
+    source_url: result.value.sourceUrl,
+    item_count: result.value.itemCount,
+    kdf_coins: kdfCoinsSummary,
   };
 }
 

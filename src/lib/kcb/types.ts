@@ -146,6 +146,9 @@ export interface PairOrderbook {
 export interface CoinSourceConfig {
   coins_config_url: string;
   icons_base_url: string;
+  /** URL of the raw KDF coins file (JSON array). Downloaded to KDF_COINS_PATH on refresh.
+   *  Default: https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins */
+  kdf_coins_url?: string;
 }
 
 export interface CoinCacheMeta {

@@ -1,13 +1,18 @@
 import "server-only";
 
-import { readFile, rename } from "node:fs/promises";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { constants as FsConstants } from "node:fs";
+import { dirname } from "node:path";
 
 import { logDebugEvent } from "@/lib/debug/logger";
-import { getKcbHttpTimeoutMs } from "@/lib/kcb/env";
+import { getKcbHttpTimeoutMs, getKdfCoinsPath } from "@/lib/kcb/env";
 import { kcbPaths } from "@/lib/kcb/paths";
 import { readJsonFile, writeJsonFile, ensureKcbLayout } from "@/lib/kcb/storage";
 import { CoinCacheMeta, CoinSourceConfig } from "@/lib/kcb/types";
 import { JsonValue } from "@/lib/kdf/types";
+
+const KDF_COINS_DEFAULT_URL =
+  "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins";
 
 interface RefreshResult {
   cachedPath: string;
@@ -132,6 +137,99 @@ export async function refreshCoinDefinitions(): Promise<RefreshResult> {
     throw new Error(`Coin definitions refresh failed (${sources.coins_config_url}): ${message}`);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Download the KDF coins file (raw JSON array) and write it to the path
+ * determined by KDF_COINS_PATH (default: ~/.kdf/coins). This is the file that
+ * KDF reads at startup when its MM2.json does not embed a "coins" field.
+ *
+ * The download source is `kdf_coins_url` from coin-sources.json, falling back
+ * to the KomodoPlatform/coins repository on GitHub.
+ */
+export async function refreshKdfCoinsFile(): Promise<{ writtenPath: string; sourceUrl: string }> {
+  const sources = await readCoinSources();
+  const url = sources.kdf_coins_url || KDF_COINS_DEFAULT_URL;
+  const targetPath = getKdfCoinsPath();
+  const timeoutMs = getKcbHttpTimeoutMs();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  await logDebugEvent({
+    severity: "info",
+    title: "KCB KDF coins file refresh",
+    body: "Fetching KDF coins file",
+    details: { url, targetPath },
+  });
+
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`KDF coins source returned HTTP ${response.status}`);
+    }
+
+    const text = await response.text();
+
+    // Validate that it is a JSON array before writing.
+    let parsed: JsonValue;
+    try {
+      parsed = JSON.parse(text) as JsonValue;
+    } catch {
+      throw new Error("KDF coins file response is not valid JSON");
+    }
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Expected KDF coins file to be a JSON array, got ${typeof parsed}`);
+    }
+
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, text, "utf8");
+
+    await logDebugEvent({
+      severity: "info",
+      title: "KCB KDF coins file written",
+      body: "KDF coins file successfully updated",
+      details: { targetPath, itemCount: parsed.length, sourceUrl: url },
+    });
+
+    return { writtenPath: targetPath, sourceUrl: url };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logDebugEvent({
+      severity: "error",
+      title: "KCB KDF coins file refresh failed",
+      body: "Failed to download or write KDF coins file",
+      details: { url, targetPath, message },
+    });
+    throw new Error(`KDF coins file refresh failed (${url}): ${message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Ensure the KDF coins file exists at KDF_COINS_PATH.
+ * Downloads it automatically if it is missing. No-op if the file is already present.
+ * Called at the start of each bootstrap apply so KDF can always find its coins file.
+ */
+export async function ensureKdfCoinsFile(): Promise<void> {
+  const targetPath = getKdfCoinsPath();
+  try {
+    await access(targetPath, FsConstants.F_OK);
+    await logDebugEvent({
+      severity: "debug",
+      title: "KCB KDF coins file present",
+      body: "KDF coins file already exists; skipping download",
+      details: { targetPath },
+    });
+  } catch {
+    await logDebugEvent({
+      severity: "warning",
+      title: "KCB KDF coins file missing",
+      body: "KDF coins file not found; downloading automatically",
+      details: { targetPath },
+    });
+    await refreshKdfCoinsFile();
   }
 }
 

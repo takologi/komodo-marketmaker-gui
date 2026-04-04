@@ -1,4 +1,5 @@
 {
   "coins_config_url": "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/utils/coins_config.json",
-  "icons_base_url": "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/icons"
+  "icons_base_url": "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/icons",
+  "kdf_coins_url": "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins"
 }
