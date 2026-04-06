@@ -1,6 +1,5 @@
 import "server-only";
 
-import { logDebugEvent } from "@/lib/debug/logger";
 import { adaptOrders } from "@/lib/kdf/adapters/orders";
 import { adaptStatus } from "@/lib/kdf/adapters/status";
 import { WalletTxHistoryItem, WalletViewEnriched } from "@/lib/kdf/adapters/wallets";
@@ -21,9 +20,6 @@ import { ensureKcbLayout } from "@/lib/kcb/storage";
 import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
-
-const COINPAPRIKA_BASE_URL = "https://api.coinpaprika.com/v1";
-const COINGECKO_SIMPLE_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price";
 
 interface PairStatus {
   pair: string;
@@ -85,15 +81,6 @@ function parsePairReferencePrices(raw: StatusViewRaw | undefined): Record<string
   }
 
   return output;
-}
-
-function parseCoinMetadataId(def: JsonObject | null, ...keys: string[]): string | undefined {
-  if (!def) return undefined;
-  for (const key of keys) {
-    const value = def[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return undefined;
 }
 
 function normalizeBaseExplorerUrl(raw: string): string {
@@ -432,86 +419,6 @@ function computeLockedByCoin(orders: OrderViewRaw[]): Map<string, number> {
   return locked;
 }
 
-async function fetchReferencePricesByCoinMetadataOptional(params: {
-  tickers: string[];
-  coinDefs: JsonValue;
-}): Promise<Record<string, number>> {
-  const output: Record<string, number> = {};
-  const seenCoinpaprika = new Set<string>();
-  const seenCoingecko = new Set<string>();
-
-  for (const ticker of params.tickers) {
-    const normalizedTicker = ticker.toUpperCase();
-    if (!normalizedTicker) continue;
-
-    const def = pickCoinDefinitionByTicker(params.coinDefs, normalizedTicker);
-    const coinpaprikaId = parseCoinMetadataId(def, "coinpaprika_id", "coinpaprikaId");
-    const coingeckoId = parseCoinMetadataId(def, "coingecko_id", "coingeckoId");
-
-    if (coinpaprikaId && !seenCoinpaprika.has(coinpaprikaId)) {
-      seenCoinpaprika.add(coinpaprikaId);
-      try {
-        const response = await fetch(`${COINPAPRIKA_BASE_URL}/tickers/${encodeURIComponent(coinpaprikaId)}`, {
-          cache: "no-store",
-        });
-        if (response.ok) {
-          const json = (await response.json()) as JsonValue;
-          if (isJsonObject(json)) {
-            const price = asNumber(
-              (json.quotes as JsonObject | undefined)?.USD && isJsonObject((json.quotes as JsonObject).USD)
-                ? ((json.quotes as JsonObject).USD as JsonObject).price
-                : undefined,
-              Number.NaN,
-            );
-            if (Number.isFinite(price) && price >= 0) {
-              output[`${normalizedTicker}/USDT`] = price;
-              continue;
-            }
-          }
-        }
-      } catch {
-        // fall through to next provider
-      }
-    }
-
-    if (coingeckoId && !seenCoingecko.has(coingeckoId)) {
-      seenCoingecko.add(coingeckoId);
-      try {
-        const response = await fetch(
-          `${COINGECKO_SIMPLE_PRICE_URL}?ids=${encodeURIComponent(coingeckoId)}&vs_currencies=usd`,
-          { cache: "no-store" },
-        );
-        if (response.ok) {
-          const json = (await response.json()) as JsonValue;
-          if (isJsonObject(json)) {
-            const row = json[coingeckoId];
-            if (isJsonObject(row)) {
-              const price = asNumber(row.usd, Number.NaN);
-              if (Number.isFinite(price) && price >= 0) {
-                output[`${normalizedTicker}/USDT`] = price;
-              }
-            }
-          }
-        }
-      } catch {
-        // keep partial map
-      }
-    }
-  }
-
-  await logDebugEvent({
-    severity: "debug",
-    title: "KCB metadata reference prices refreshed",
-    body: `Loaded ${Object.keys(output).length} metadata-based reference prices`,
-    details: {
-      tickers: params.tickers,
-      pricesFound: Object.keys(output).slice(0, 20),
-    },
-  });
-
-  return output;
-}
-
 function parseConfiguredPairs(raw: StatusViewRaw, statusPair: string): string[] {
   const pairsFromArray = raw.configured_pairs;
   if (Array.isArray(pairsFromArray)) {
@@ -557,12 +464,10 @@ function emptyStatusRaw(): StatusViewRaw {
 
 export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
   await ensureKcbLayout();
-  const [rawStatusOptional, rawOrders, versionOptional, cfg, coinDefs] = await Promise.all([
+  const [rawStatusOptional, rawOrders, versionOptional] = await Promise.all([
     fetchSimpleMmStatusOptional(),
     fetchOrdersRaw(),
     fetchVersionOptional(),
-    getBootstrapConfig(),
-    getCoinDefinitions(),
   ]);
 
   const simpleMmStatus = rawStatusOptional.available
@@ -594,23 +499,6 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
   });
 
   const statusReferencePrices = parsePairReferencePrices(rawStatusOptional.raw);
-  const wantedTickers = new Set<string>();
-  for (const pair of normalizedConfiguredPairs) {
-    const [base, rel] = pair.split("/");
-    if (base) wantedTickers.add(base.toUpperCase());
-    if (rel) wantedTickers.add(rel.toUpperCase());
-  }
-  for (const coin of cfg.coins) {
-    if (coin.coin) wantedTickers.add(coin.coin.toUpperCase());
-  }
-  const endpointReferencePrices = await fetchReferencePricesByCoinMetadataOptional({
-    tickers: Array.from(wantedTickers),
-    coinDefs,
-  });
-  const mergedReferencePrices = {
-    ...statusReferencePrices,
-    ...endpointReferencePrices,
-  };
 
   return {
     connectionOk: true,
@@ -627,7 +515,7 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     pairsWithActiveOrders: pairStatuses.filter((pair) => pair.hasActiveOrders).length,
     activeOrderUuids,
     pairStatuses,
-    referencePricesByPair: mergedReferencePrices,
+    referencePricesByPair: statusReferencePrices,
     version: {
       available: versionOptional.available,
       value: versionOptional.available ? String(versionOptional.result ?? "available") : "not available",
