@@ -9,7 +9,7 @@
       {
         "id": "komodo-earth-main",
         "type": "komodo_earth",
-        "url": "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
+        "url": "https://prices.gleec.com/api/v2/tickers?expire_at=600",
         "enabled": true,
         "timeout_ms": 60000,
         "refresh_interval_ms": 30000
@@ -28,7 +28,7 @@
         "url": "https://api.coinpaprika.com/v1",
         "enabled": true,
         "timeout_ms": 60000,
-        "refresh_interval_ms": 30000
+        "refresh_interval_ms": 300000
       }
     ]
   }

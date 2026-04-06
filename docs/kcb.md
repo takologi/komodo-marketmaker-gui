@@ -189,6 +189,13 @@ Configuration (`config/coin-sources.json`):
   - `timeout_ms`
   - `refresh_interval_ms` (per-source background period, default `30000`)
 
+Operational notes:
+
+- `komodo_earth` should point to `https://prices.gleec.com/api/v2/tickers?expire_at=600`
+  (legacy `prices.komodo.earth` endpoint may fail due certificate/redirect issues).
+- `coinpaprika` free tier can throttle aggressively; prefer a longer
+  `refresh_interval_ms` (e.g. `300000`) to avoid `402/429` API responses.
+
 KCB uses `coins_config.json` metadata (`coingecko_id`, `coinpaprika_id`) for source mapping when required
 (e.g. Coingecko/Coinpaprika sources), so coin metadata remains the primary schema authority.
 

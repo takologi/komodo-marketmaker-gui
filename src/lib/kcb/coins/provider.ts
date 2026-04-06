@@ -13,12 +13,14 @@ import { JsonValue } from "@/lib/kdf/types";
 
 const KDF_COINS_DEFAULT_URL =
   "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins";
+const KOMODO_EARTH_DEPRECATED_URL = "https://prices.komodo.earth/api/v2/tickers?expire_at=600";
+const KOMODO_EARTH_REPLACEMENT_URL = "https://prices.gleec.com/api/v2/tickers?expire_at=600";
 
 const DEFAULT_PRICE_SOURCE_ITEMS: NonNullable<NonNullable<CoinSourceConfig["price_sources"]>["sources"]> = [
   {
     id: "komodo-earth-main",
     type: "komodo_earth",
-    url: "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
+    url: KOMODO_EARTH_REPLACEMENT_URL,
     enabled: true,
     timeout_ms: 60000,
     refresh_interval_ms: 30000,
@@ -37,7 +39,7 @@ const DEFAULT_PRICE_SOURCE_ITEMS: NonNullable<NonNullable<CoinSourceConfig["pric
     url: "https://api.coinpaprika.com/v1",
     enabled: true,
     timeout_ms: 60000,
-    refresh_interval_ms: 30000,
+    refresh_interval_ms: 300000,
   },
 ];
 
@@ -84,6 +86,27 @@ function normalizeCoinSourcesConfig(
     addedDefaultSourceIds.push(...DEFAULT_PRICE_SOURCE_ITEMS.map((source) => source.id));
     changed = true;
   } else {
+    const existingSources = (next.price_sources.sources || []).map((source) => ({ ...source }));
+    let urlsMigrated = 0;
+    let refreshIntervalsAdjusted = 0;
+
+    for (const source of existingSources) {
+      if (source.type === "komodo_earth" && source.url === KOMODO_EARTH_DEPRECATED_URL) {
+        source.url = KOMODO_EARTH_REPLACEMENT_URL;
+        urlsMigrated += 1;
+      }
+
+      if (source.type === "coinpaprika" && source.refresh_interval_ms === undefined) {
+        source.refresh_interval_ms = 300000;
+        refreshIntervalsAdjusted += 1;
+      }
+    }
+
+    if (urlsMigrated > 0 || refreshIntervalsAdjusted > 0) {
+      next.price_sources.sources = existingSources;
+      changed = true;
+    }
+
     const sourceIds = new Set((next.price_sources.sources || []).map((source) => source.id));
     const missingDefaults = DEFAULT_PRICE_SOURCE_ITEMS.filter((source) => !sourceIds.has(source.id));
     if (missingDefaults.length > 0) {
