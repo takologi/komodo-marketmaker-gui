@@ -546,7 +546,12 @@ export default function OrdersPage() {
               wallets={walletsData ?? []}
               referencePrices={statusData?.referencePricesByPair ?? {}}
               onSetLtp={setLtp}
-              onSwap={() => updateOverride(pair, { swapped: !override.swapped })}
+              onSwap={() =>
+                updateOverride(pair, {
+                  swapped: !override.swapped,
+                  milliBase: override.milliRel,
+                  milliRel: override.milliBase,
+                })}
               onHide={() => updateOverride(pair, { hidden: true })}
               onToggleAllOrders={() =>
                 updateOverride(pair, { showAllOrders: !override.showAllOrders })

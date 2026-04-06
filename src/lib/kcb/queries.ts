@@ -1,5 +1,6 @@
 import "server-only";
 
+import { logDebugEvent } from "@/lib/debug/logger";
 import { adaptOrders } from "@/lib/kdf/adapters/orders";
 import { adaptStatus } from "@/lib/kdf/adapters/status";
 import { WalletTxHistoryItem, WalletViewEnriched } from "@/lib/kdf/adapters/wallets";
@@ -19,6 +20,12 @@ import { ensureKcbLayout } from "@/lib/kcb/storage";
 import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
+
+const REF_PRICE_ENDPOINTS = [
+  "https://prices.gleec.com/api/v2/tickers",
+  "https://prices.cipig.net:1717/api/v2/tickers",
+  "https://defistats.gleec.com/api/v3/prices/tickers_v2",
+];
 
 interface PairStatus {
   pair: string;
@@ -80,6 +87,90 @@ function parsePairReferencePrices(raw: StatusViewRaw | undefined): Record<string
   }
 
   return output;
+}
+
+async function fetchReferencePricesByPairOptional(): Promise<Record<string, number>> {
+  for (const endpoint of REF_PRICE_ENDPOINTS) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8_000);
+      const response = await fetch(endpoint, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        await logDebugEvent({
+          severity: "warning",
+          title: "KCB reference price endpoint error",
+          body: `Reference price source returned HTTP ${response.status}`,
+          details: { endpoint, status: response.status },
+        });
+        continue;
+      }
+
+      const json = (await response.json()) as JsonValue;
+      if (!isJsonObject(json)) {
+        await logDebugEvent({
+          severity: "warning",
+          title: "KCB reference price endpoint shape",
+          body: "Reference price response is not an object",
+          details: { endpoint },
+        });
+        continue;
+      }
+
+      const map: Record<string, number> = {};
+      for (const [ticker, row] of Object.entries(json)) {
+        const normalizedTicker = ticker.toUpperCase();
+        if (!normalizedTicker) continue;
+
+        let price = Number.NaN;
+        if (isJsonObject(row)) {
+          price = asNumber(row.last_price ?? row.price ?? row.last, Number.NaN);
+        } else {
+          price = asNumber(row, Number.NaN);
+        }
+
+        if (Number.isFinite(price) && price >= 0) {
+          map[`${normalizedTicker}/USDT`] = price;
+        }
+      }
+
+      await logDebugEvent({
+        severity: "debug",
+        title: "KCB reference prices refreshed",
+        body: `Loaded ${Object.keys(map).length} reference prices`,
+        details: {
+          endpoint,
+          ltc_usdt: map["LTC/USDT"] ?? null,
+          btc_usdt: map["BTC/USDT"] ?? null,
+        },
+      });
+
+      return map;
+    } catch (error) {
+      await logDebugEvent({
+        severity: "warning",
+        title: "KCB reference price endpoint failed",
+        body: "Failed to fetch reference prices from endpoint",
+        details: {
+          endpoint,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  await logDebugEvent({
+    severity: "warning",
+    title: "KCB reference prices unavailable",
+    body: "All configured reference price endpoints failed; reference prices are empty",
+    details: { endpoints: REF_PRICE_ENDPOINTS },
+  });
+
+  return {};
 }
 
 function pickCoinDefinitionByTicker(coinDefs: JsonValue, ticker: string): JsonObject | null {
@@ -257,10 +348,11 @@ function emptyStatusRaw(): StatusViewRaw {
 
 export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
   await ensureKcbLayout();
-  const [rawStatusOptional, rawOrders, versionOptional] = await Promise.all([
+  const [rawStatusOptional, rawOrders, versionOptional, endpointReferencePrices] = await Promise.all([
     fetchSimpleMmStatusOptional(),
     fetchOrdersRaw(),
     fetchVersionOptional(),
+    fetchReferencePricesByPairOptional(),
   ]);
 
   const simpleMmStatus = rawStatusOptional.available
@@ -291,6 +383,12 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     activeOrderCount: orders.length,
   });
 
+  const statusReferencePrices = parsePairReferencePrices(rawStatusOptional.raw);
+  const mergedReferencePrices = {
+    ...statusReferencePrices,
+    ...endpointReferencePrices,
+  };
+
   return {
     connectionOk: true,
     connectionMessage: "KCB connected to KDF RPC adapter",
@@ -306,7 +404,7 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     pairsWithActiveOrders: pairStatuses.filter((pair) => pair.hasActiveOrders).length,
     activeOrderUuids,
     pairStatuses,
-    referencePricesByPair: parsePairReferencePrices(rawStatusOptional.raw),
+    referencePricesByPair: mergedReferencePrices,
     version: {
       available: versionOptional.available,
       value: versionOptional.available ? String(versionOptional.result ?? "available") : "not available",
