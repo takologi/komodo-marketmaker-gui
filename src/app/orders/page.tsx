@@ -162,13 +162,31 @@ function PairSection({
   const asksMaxTotalRaw = asksRaw.reduce((max, e) => Math.max(max, e.volume * e.price), 0);
   const bidsMaxTotalRaw = bidsRaw.reduce((max, e) => Math.max(max, e.volume * e.price), 0);
 
-  const askRows: RenderOrderRow[] = bidsRaw
+  const askRows: RenderOrderRow[] = asksRaw
     .map((e) => {
       const rawPriceRelPerBase = e.price;
-      const priceBasePerRel = rawPriceRelPerBase > 0 ? safeDiv(1, rawPriceRelPerBase) : 0;
       const quantityBase = e.volume;
       const totalRel = quantityBase * rawPriceRelPerBase;
-      const displayPrice = priceBasePerRel * safeDiv(baseScale, relScale);
+      const displayPrice = rawPriceRelPerBase * safeDiv(relScale, baseScale);
+      const displayQuantity = quantityBase * baseScale;
+      const displayTotal = totalRel * relScale;
+      return {
+        uuid: e.uuid,
+        mine: e.mine,
+        price: displayPrice,
+        quantity: displayQuantity,
+        total: displayTotal,
+        depthPct: asksMaxTotalRaw > 0 ? (totalRel / asksMaxTotalRaw) * 100 : 0,
+      };
+    })
+    .sort((a, b) => a.price - b.price);
+
+  const bidRows: RenderOrderRow[] = bidsRaw
+    .map((e) => {
+      const rawPriceRelPerBase = e.price;
+      const quantityBase = e.volume;
+      const totalRel = quantityBase * rawPriceRelPerBase;
+      const displayPrice = rawPriceRelPerBase * safeDiv(relScale, baseScale);
       const displayQuantity = quantityBase * baseScale;
       const displayTotal = totalRel * relScale;
       return {
@@ -182,26 +200,6 @@ function PairSection({
     })
     .sort((a, b) => b.price - a.price);
 
-  const bidRows: RenderOrderRow[] = asksRaw
-    .map((e) => {
-      const rawPriceRelPerBase = e.price;
-      const priceBasePerRel = rawPriceRelPerBase > 0 ? safeDiv(1, rawPriceRelPerBase) : 0;
-      const quantityBase = e.volume;
-      const totalRel = quantityBase * rawPriceRelPerBase;
-      const displayPrice = priceBasePerRel * safeDiv(baseScale, relScale);
-      const displayQuantity = quantityBase * baseScale;
-      const displayTotal = totalRel * relScale;
-      return {
-        uuid: e.uuid,
-        mine: e.mine,
-        price: displayPrice,
-        quantity: displayQuantity,
-        total: displayTotal,
-        depthPct: asksMaxTotalRaw > 0 ? (totalRel / asksMaxTotalRaw) * 100 : 0,
-      };
-    })
-    .sort((a, b) => b.price - a.price);
-
   const mineAsks = askRows.filter((e) => e.mine);
   const mineBids = bidRows.filter((e) => e.mine);
   const visibleAsks = effectiveShowAll ? askRows : mineAsks;
@@ -211,13 +209,13 @@ function PairSection({
   const mineOrders = mineAsks.length + mineBids.length;
 
   const highestBid = bidRows.length > 0 ? bidRows[0].price : 0;
-  const lowestAsk = askRows.length > 0 ? askRows[askRows.length - 1].price : 0;
+  const lowestAsk = askRows.length > 0 ? askRows[0].price : 0;
   const spreadAbs = lowestAsk > 0 && highestBid > 0 ? lowestAsk - highestBid : 0;
   const spreadPct = lowestAsk > 0 ? (spreadAbs / lowestAsk) * 100 : 0;
 
   const baseUsd = getUsdPrice(displayBase, referencePrices);
   const relUsd = getUsdPrice(displayRel, referencePrices);
-  const referencePairPrice = baseUsd > 0 && relUsd > 0 ? safeDiv(baseUsd, relUsd) : 0;
+  const referencePairPrice = baseUsd > 0 && relUsd > 0 ? safeDiv(relUsd, baseUsd) : 0;
   const baseDirectRef = referencePrices[`${displayBase.toUpperCase()}/USDT`];
   const baseReverseRef = referencePrices[`USDT/${displayBase.toUpperCase()}`];
   const relDirectRef = referencePrices[`${displayRel.toUpperCase()}/USDT`];
@@ -243,8 +241,7 @@ function PairSection({
     if (!orderbookData) return;
     const maybeLtpRelPerBase = (orderbookData as unknown as { ltp?: number }).ltp;
     if (typeof maybeLtpRelPerBase !== "number" || maybeLtpRelPerBase <= 0) return;
-    const ltpBasePerRel = safeDiv(1, maybeLtpRelPerBase);
-    onSetLtp(displayBase, displayRel, ltpBasePerRel);
+    onSetLtp(displayBase, displayRel, maybeLtpRelPerBase);
   }, [displayBase, displayRel, onSetLtp, orderbookData]);
 
   const walletByTicker = new Map(wallets.map((w) => [w.coin.toUpperCase(), w]));
@@ -342,7 +339,7 @@ function PairSection({
         <div className="pair-orderbook" style={{ fontFamily: NUMERIC_FONT_STACK, fontVariantNumeric: "tabular-nums" }}>
           <div className="orderbook-grid header">
             <div style={{ textAlign: "center" }}>&nbsp;</div>
-            <div style={{ textAlign: "right" }}>Price ({displayBaseTicker}/{displayRelTicker})</div>
+            <div style={{ textAlign: "right" }}>Price ({displayRelTicker}/{displayBaseTicker})</div>
             <div style={{ textAlign: "right" }}>Quantity ({displayBaseTicker})</div>
             <div style={{ textAlign: "right" }}>Total ({displayRelTicker})</div>
           </div>
