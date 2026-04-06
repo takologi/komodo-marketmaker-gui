@@ -167,11 +167,9 @@ function PairSection({
       const rawPriceRelPerBase = e.price;
       const quantityBase = e.volume;
       const totalRel = quantityBase * rawPriceRelPerBase;
-      const displayPrice = rawPriceRelPerBase > 0
-        ? safeDiv(1, rawPriceRelPerBase) * safeDiv(relScale, baseScale)
-        : 0;
-      const displayQuantity = totalRel * relScale;
-      const displayTotal = quantityBase * baseScale;
+      const displayPrice = rawPriceRelPerBase * safeDiv(relScale, baseScale);
+      const displayQuantity = quantityBase * baseScale;
+      const displayTotal = totalRel * relScale;
       return {
         uuid: e.uuid,
         mine: e.mine,
@@ -188,11 +186,9 @@ function PairSection({
       const rawPriceRelPerBase = e.price;
       const quantityBase = e.volume;
       const totalRel = quantityBase * rawPriceRelPerBase;
-      const displayPrice = rawPriceRelPerBase > 0
-        ? safeDiv(1, rawPriceRelPerBase) * safeDiv(relScale, baseScale)
-        : 0;
-      const displayQuantity = totalRel * relScale;
-      const displayTotal = quantityBase * baseScale;
+      const displayPrice = rawPriceRelPerBase * safeDiv(relScale, baseScale);
+      const displayQuantity = quantityBase * baseScale;
+      const displayTotal = totalRel * relScale;
       return {
         uuid: e.uuid,
         mine: e.mine,
@@ -352,9 +348,9 @@ function PairSection({
         <div className="pair-orderbook" style={{ fontFamily: NUMERIC_FONT_STACK, fontVariantNumeric: "tabular-nums" }}>
           <div className="orderbook-grid header">
             <div style={{ textAlign: "center" }}>&nbsp;</div>
-            <div style={{ textAlign: "right" }}>Price ({displayBaseTicker}/{displayRelTicker})</div>
-            <div style={{ textAlign: "right" }}>Quantity ({displayRelTicker})</div>
-            <div style={{ textAlign: "right" }}>Total ({displayBaseTicker})</div>
+            <div style={{ textAlign: "right" }}>Price ({displayBaseTicker})</div>
+            <div style={{ textAlign: "right" }}>Quantity ({displayBaseTicker})</div>
+            <div style={{ textAlign: "right" }}>Total ({displayRelTicker})</div>
           </div>
 
           {visibleAsks.map((row) => (
