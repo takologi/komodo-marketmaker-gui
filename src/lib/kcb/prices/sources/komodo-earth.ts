@@ -1,4 +1,5 @@
 import { PriceSourceFetcher, isJsonObject, parsePositiveNumber } from "@/lib/kcb/prices/types";
+import { detectAndHandlePotentialThrottling } from "@/lib/kcb/prices/throttling";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
 function pickPriceFromRow(row: JsonValue | undefined): number | undefined {
@@ -40,6 +41,12 @@ export const fetchFromKomodoEarth: PriceSourceFetcher = async (source, ctx) => {
     const response = await fetch(source.url, {
       cache: "no-store",
       signal: controller.signal,
+    });
+
+    await detectAndHandlePotentialThrottling({
+      sourceId: source.id,
+      status: response.status,
+      headers: response.headers,
     });
 
     if (!response.ok) {

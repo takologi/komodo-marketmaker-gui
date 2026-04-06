@@ -9,6 +9,7 @@ import { asString } from "@/lib/kdf/adapters/common";
 import { PriceAsset, PriceSourceFetcher } from "@/lib/kcb/prices/types";
 import { fetchFromKomodoEarth } from "@/lib/kcb/prices/sources/komodo-earth";
 import { fetchFromCoingecko } from "@/lib/kcb/prices/sources/coingecko";
+import { waitForSourceThrottleWindow } from "@/lib/kcb/prices/throttling";
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -81,89 +82,143 @@ function getSourceFetcher(type: PriceSourceConfigItem["type"]): PriceSourceFetch
   return null;
 }
 
-export async function fetchReferencePricesFromConfiguredSources(params: {
+export interface ReferencePriceFetchDetails {
+  quoteTicker: string;
+  mergedByPair: Record<string, number>;
+  byTickerBySource: Record<string, Record<string, number>>;
+}
+
+export async function fetchReferencePriceDetailsFromConfiguredSources(params: {
   tickers: string[];
   coinDefs: JsonValue;
-}): Promise<Record<string, number>> {
+}): Promise<ReferencePriceFetchDetails> {
   const coinSources = await getCoinSourcesConfig();
   const cfg = coinSources.price_sources;
+  const quoteTicker = (cfg?.quote_ticker || "USDT").toUpperCase();
 
   if (!cfg || cfg.enabled === false) {
-    return {};
+    return {
+      quoteTicker,
+      mergedByPair: {},
+      byTickerBySource: {},
+    };
   }
 
-  const quoteTicker = (cfg.quote_ticker || "USDT").toUpperCase();
   const configuredSources = (cfg.sources || []).filter((source) => normalizeSourceEnabled(source));
   if (configuredSources.length === 0) {
-    return {};
+    return {
+      quoteTicker,
+      mergedByPair: {},
+      byTickerBySource: {},
+    };
   }
 
   const allAssets = buildAssets(params.tickers, params.coinDefs);
   if (allAssets.length === 0) {
-    return {};
+    return {
+      quoteTicker,
+      mergedByPair: {},
+      byTickerBySource: {},
+    };
   }
 
-  const resolvedByTicker: Record<string, number> = {};
-  const missing = new Set(allAssets.map((asset) => asset.ticker));
+  await logDebugEvent({
+    severity: "info",
+    title: "KCB reference price fetch started",
+    body: `Fetching reference prices for ${allAssets.length} ticker(s) from ${configuredSources.length} source(s)`,
+    details: {
+      tickers: allAssets.map((a) => a.ticker),
+      sources: configuredSources.map((s) => ({ id: s.id, type: s.type, url: s.url })),
+    },
+  });
+
+  const mergedByTicker: Record<string, number> = {};
+  const byTickerBySource: Record<string, Record<string, number>> = {};
 
   for (const source of configuredSources) {
-    if (missing.size === 0) break;
-
     const fetcher = getSourceFetcher(source.type);
     if (!fetcher) {
       await logDebugEvent({
         severity: "warning",
-        title: "KCB price source unknown type",
-        body: `Skipping unknown price source type=${source.type}`,
+        title: "KCB reference price source unknown type",
+        body: `Skipping unknown source type=${source.type}`,
         details: { sourceId: source.id },
       });
       continue;
     }
 
-    const assetsForSource = allAssets.filter((asset) => missing.has(asset.ticker));
+    await waitForSourceThrottleWindow(source.id);
+
     try {
       const result = await fetcher(source, {
-        assets: assetsForSource,
+        assets: allAssets,
         timeoutMs: normalizeTimeout(source),
       });
 
-      for (const [ticker, price] of Object.entries(result.pricesByTicker)) {
-        if (Number.isFinite(price) && price > 0) {
-          resolvedByTicker[ticker.toUpperCase()] = price;
-          missing.delete(ticker.toUpperCase());
+      for (const [tickerRaw, price] of Object.entries(result.pricesByTicker)) {
+        const ticker = tickerRaw.toUpperCase();
+        if (!Number.isFinite(price) || price <= 0) continue;
+
+        if (!byTickerBySource[ticker]) {
+          byTickerBySource[ticker] = {};
+        }
+        byTickerBySource[ticker][source.id] = price;
+
+        if (!(ticker in mergedByTicker)) {
+          mergedByTicker[ticker] = price;
         }
       }
 
       await logDebugEvent({
-        severity: "debug",
-        title: "KCB price source fetch completed",
+        severity: "info",
+        title: "KCB reference price source completed",
         body: `Source ${source.id} returned ${Object.keys(result.pricesByTicker).length} price(s)`,
         details: {
           sourceId: source.id,
           sourceType: source.type,
           diagnostics: result.diagnostics,
-          unresolvedAfterSource: missing.size,
         },
       });
     } catch (error) {
       await logDebugEvent({
         severity: "warning",
-        title: "KCB price source fetch failed",
-        body: `Source ${source.id} failed; trying next source if available`,
+        title: "KCB reference price source failed",
+        body: `Source ${source.id} failed while fetching reference prices`,
         details: {
           sourceId: source.id,
           sourceType: source.type,
           error: error instanceof Error ? error.message : String(error),
-          unresolvedBeforeFailure: missing.size,
         },
       });
     }
   }
 
-  const output: Record<string, number> = {};
-  for (const [ticker, price] of Object.entries(resolvedByTicker)) {
-    output[`${ticker}/${quoteTicker}`] = price;
+  const mergedByPair: Record<string, number> = {};
+  for (const [ticker, price] of Object.entries(mergedByTicker)) {
+    mergedByPair[`${ticker}/${quoteTicker}`] = price;
   }
 
-  return output;
+  await logDebugEvent({
+    severity: "info",
+    title: "KCB reference price fetch finished",
+    body: `Resolved ${Object.keys(mergedByPair).length} normalized reference pair(s)`,
+    details: {
+      quoteTicker,
+      resolvedPairs: Object.keys(mergedByPair),
+    },
+  });
+
+  return {
+    quoteTicker,
+    mergedByPair,
+    byTickerBySource,
+  };
+}
+
+export async function fetchReferencePricesFromConfiguredSources(params: {
+  tickers: string[];
+  coinDefs: JsonValue;
+}): Promise<Record<string, number>> {
+  const detailed = await fetchReferencePriceDetailsFromConfiguredSources(params);
+  return detailed.mergedByPair;
 }

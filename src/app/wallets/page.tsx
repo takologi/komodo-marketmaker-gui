@@ -92,6 +92,9 @@ function CopyButton({ text }: { text: string }) {
 
 function WalletCard({ wallet }: { wallet: WalletViewEnriched }) {
   const [expanded, setExpanded] = useState(false);
+  const sourceEntries = Object.entries(wallet.referencePricesBySource ?? {})
+    .filter(([, value]) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a[0].localeCompare(b[0]));
 
   return (
     <div
@@ -138,6 +141,21 @@ function WalletCard({ wallet }: { wallet: WalletViewEnriched }) {
             ? ` • required confirmations: ${wallet.requiredConfirmations}`
             : ""}
         </p>
+      ) : null}
+
+      {sourceEntries.length > 0 ? (
+        <div className="muted" style={{ marginTop: "0.25rem", fontSize: "0.82em", display: "grid", gap: "0.12rem" }}>
+          <div>
+            reference prices ({wallet.referenceQuoteTicker ?? "USDT"})
+          </div>
+          <div style={{ display: "grid", gap: "0.08rem", paddingLeft: "0.45rem" }}>
+            {sourceEntries.map(([sourceId, value]) => (
+              <div key={`${wallet.coin}-${sourceId}`}>
+                {sourceId}: {value.toFixed(8)}
+              </div>
+            ))}
+          </div>
+        </div>
       ) : null}
 
       {wallet.activated ? (

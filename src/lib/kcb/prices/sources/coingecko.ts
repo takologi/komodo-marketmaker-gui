@@ -1,4 +1,5 @@
 import { PriceSourceFetcher, isJsonObject, parsePositiveNumber } from "@/lib/kcb/prices/types";
+import { detectAndHandlePotentialThrottling } from "@/lib/kcb/prices/throttling";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
 function appendCoingeckoQuery(baseUrl: string, ids: string[]): string {
@@ -38,6 +39,12 @@ export const fetchFromCoingecko: PriceSourceFetcher = async (source, ctx) => {
     const response = await fetch(url, {
       cache: "no-store",
       signal: controller.signal,
+    });
+
+    await detectAndHandlePotentialThrottling({
+      sourceId: source.id,
+      status: response.status,
+      headers: response.headers,
     });
 
     if (!response.ok) {

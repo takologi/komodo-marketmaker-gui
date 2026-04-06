@@ -137,6 +137,11 @@ Both respect milli toggles for display units.
 KCB resolves reference prices server-side and exposes them through `GET /api/kcb/status` as
 `referencePricesByPair`.
 
+KCB also enriches `GET /api/kcb/wallets` with per-coin source values:
+
+- `referenceQuoteTicker`
+- `referencePricesBySource` (`sourceId -> price`), filtered to reachable/value-producing sources
+
 Behavior:
 
 - KDF-provided pair prices from `get_simple_market_maker_status` are always consumed first.
@@ -152,7 +157,22 @@ Source orchestration:
 
 - `src/lib/kcb/prices/service.ts`
 - sources are attempted in configured order; each source can be enabled/disabled independently
-- only unresolved tickers are passed to next source
+- KCB records per-source values per ticker and keeps first-source-win merge for normalized output
+
+Logging:
+
+- `KCB reference price fetch started`
+- `KCB reference price source completed`
+- `KCB reference price source failed`
+- `KCB reference price fetch finished`
+
+Throttling handling:
+
+- KCB detects potential throttling from HTTP 429 and rate-limit headers
+  (`retry-after`, `x-ratelimit-remaining`, `x-ratelimit-reset`)
+- on detection, KCB logs warning `KCB reference price throttling detected`
+- KCB applies in-memory per-source backoff and delays future source calls
+  (`KCB reference price throttling backoff`)
 
 Configuration (`config/coin-sources.json`):
 

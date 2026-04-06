@@ -19,7 +19,7 @@ import {
 import { ensureKcbLayout } from "@/lib/kcb/storage";
 import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
-import { fetchReferencePricesFromConfiguredSources } from "@/lib/kcb/prices/service";
+import { fetchReferencePriceDetailsFromConfiguredSources } from "@/lib/kcb/prices/service";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
 interface PairStatus {
@@ -512,14 +512,14 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     if (coin.coin) wantedTickers.add(coin.coin.toUpperCase());
   }
 
-  const externalReferencePrices = await fetchReferencePricesFromConfiguredSources({
+  const externalReferenceDetails = await fetchReferencePriceDetailsFromConfiguredSources({
     tickers: Array.from(wantedTickers),
     coinDefs,
   });
 
   const mergedReferencePrices = {
     ...statusReferencePrices,
-    ...externalReferencePrices,
+    ...externalReferenceDetails.mergedByPair,
   };
 
   return {
@@ -562,6 +562,14 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
     fetchOrdersRaw(),
   ]);
   const lockedByCoin = computeLockedByCoin(rawOrders);
+  const walletTickers = cfg.coins
+    .map((coinCfg) => coinCfg.coin.toUpperCase())
+    .filter((ticker, index, all) => Boolean(ticker) && all.indexOf(ticker) === index);
+
+  const externalReferenceDetails = await fetchReferencePriceDetailsFromConfiguredSources({
+    tickers: walletTickers,
+    coinDefs,
+  });
 
   // Build coin → activation error map from last-apply error strings.
   // Expected format: "activation failed for BTC: <reason>"
@@ -600,6 +608,8 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
           balance,
           spendable,
           unspendable,
+          referenceQuoteTicker: externalReferenceDetails.quoteTicker,
+          referencePricesBySource: externalReferenceDetails.byTickerBySource[ticker] ?? {},
           requiredConfirmations: Number.isFinite(requiredConfirmations)
             ? requiredConfirmations
             : undefined,
@@ -617,6 +627,8 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
       return {
         coin: ticker,
         activated: false,
+        referenceQuoteTicker: externalReferenceDetails.quoteTicker,
+        referencePricesBySource: externalReferenceDetails.byTickerBySource[ticker] ?? {},
         error: coinErrorMap.get(ticker) ?? "Coin is not activated",
       };
     }),

@@ -47,6 +47,10 @@ export interface WalletViewEnriched {
   unspendable?: number;
   /** Optional per-wallet transaction history information. */
   txHistory?: WalletTxHistoryView;
+  /** Quote ticker used for external reference prices (e.g. USDT). */
+  referenceQuoteTicker?: string;
+  /** External reference prices by source id, only reachable sources with values. */
+  referencePricesBySource?: Record<string, number>;
   /** Activation error message — present only when `activated=false`. */
   error?: string;
 }
