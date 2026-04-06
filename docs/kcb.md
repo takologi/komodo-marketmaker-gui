@@ -18,7 +18,7 @@ Default root: `~/.kcb` (override with `KCB_CONFIG_DIR`).
 
 - `config/bootstrap-config.json` — desired bootstrap plan (coins, simple MM flags)
 - `config/kdf-capabilities.local.json` — local capability overrides
-- `config/coin-sources.json` — URLs for coins config and icons base
+- `config/coin-sources.json` — coin metadata URLs + modular external reference-price sources
 - `cache/coins/coins_config.json` — cached coins definition payload
 - `cache/coins/coins_config.meta.json` — fetch metadata
 - `state/commands.json` — command queue + command history
@@ -131,6 +131,42 @@ Each pair section shows two lines for both coins:
 - **LOCKED** (normal): amount currently locked in open orders for the shown pair/side
 
 Both respect milli toggles for display units.
+
+## External reference prices (KCB modular sources)
+
+KCB resolves reference prices server-side and exposes them through `GET /api/kcb/status` as
+`referencePricesByPair`.
+
+Behavior:
+
+- KDF-provided pair prices from `get_simple_market_maker_status` are always consumed first.
+- KCB then augments missing coin USD references using pluggable source modules.
+- Normalized output keys are `TICKER/USDT` (or `TICKER/<quote_ticker>` if configured).
+
+Implementation modules:
+
+- `src/lib/kcb/prices/sources/komodo-earth.ts`
+- `src/lib/kcb/prices/sources/coingecko.ts`
+
+Source orchestration:
+
+- `src/lib/kcb/prices/service.ts`
+- sources are attempted in configured order; each source can be enabled/disabled independently
+- only unresolved tickers are passed to next source
+
+Configuration (`config/coin-sources.json`):
+
+- `price_sources.enabled` — master switch
+- `price_sources.quote_ticker` — output quote (default `USDT`)
+- `price_sources.sources[]` — ordered list of source modules and URLs
+  - `id` (unique source name)
+  - `type` (`komodo_earth` or `coingecko`)
+  - `url`
+  - `enabled`
+  - `timeout_ms`
+
+KCB uses `coins_config.json` metadata (`coingecko_id`) for source mapping when required
+(e.g. Coingecko source), so coin metadata remains the primary schema authority.
 
 ## Direct orders
 

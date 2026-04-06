@@ -22,7 +22,7 @@ interface RefreshResult {
   sourceUrl: string;
 }
 
-async function readCoinSources(): Promise<CoinSourceConfig> {
+export async function getCoinSourcesConfig(): Promise<CoinSourceConfig> {
   await ensureKcbLayout();
   try {
     return await readJsonFile<CoinSourceConfig>(kcbPaths.coinSources());
@@ -32,6 +32,27 @@ async function readCoinSources(): Promise<CoinSourceConfig> {
         "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/utils/coins_config.json",
       icons_base_url: process.env.KCB_ICONS_BASE_URL ||
         "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/icons",
+      kdf_coins_url: KDF_COINS_DEFAULT_URL,
+      price_sources: {
+        enabled: true,
+        quote_ticker: "USDT",
+        sources: [
+          {
+            id: "komodo-earth-main",
+            type: "komodo_earth",
+            url: "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
+            enabled: true,
+            timeout_ms: 60000,
+          },
+          {
+            id: "coingecko-fallback",
+            type: "coingecko",
+            url: "https://api.coingecko.com/api/v3/simple/price",
+            enabled: true,
+            timeout_ms: 60000,
+          },
+        ],
+      },
     };
 
     const backup = `${kcbPaths.coinSources()}.corrupt.${Date.now()}`;
@@ -58,7 +79,7 @@ async function readCoinSources(): Promise<CoinSourceConfig> {
 }
 
 export async function refreshCoinDefinitions(): Promise<RefreshResult> {
-  const sources = await readCoinSources();
+  const sources = await getCoinSourcesConfig();
   const timeoutMs = getKcbHttpTimeoutMs();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -149,7 +170,7 @@ export async function refreshCoinDefinitions(): Promise<RefreshResult> {
  * to the KomodoPlatform/coins repository on GitHub.
  */
 export async function refreshKdfCoinsFile(): Promise<{ writtenPath: string; sourceUrl: string }> {
-  const sources = await readCoinSources();
+  const sources = await getCoinSourcesConfig();
   const url = sources.kdf_coins_url || KDF_COINS_DEFAULT_URL;
   const targetPath = getKdfCoinsPath();
   const timeoutMs = getKcbHttpTimeoutMs();

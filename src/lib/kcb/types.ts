@@ -159,6 +159,35 @@ export interface CoinSourceConfig {
   /** URL of the raw KDF coins file (JSON array). Downloaded to KDF_COINS_PATH on refresh.
    *  Default: https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins */
   kdf_coins_url?: string;
+  /**
+   * Modular external reference-price source configuration used by KCB.
+   * KCB fetches prices server-side and exposes normalized values as `TICKER/USDT`.
+   */
+  price_sources?: PriceSourcesConfig;
+}
+
+export type PriceSourceType = "komodo_earth" | "coingecko";
+
+export interface PriceSourceConfigItem {
+  /** Stable source identifier (for logs and diagnostics), e.g. "komodo-earth-main". */
+  id: string;
+  /** Source module type; each type has its own implementation module. */
+  type: PriceSourceType;
+  /** Source endpoint URL. */
+  url: string;
+  /** Disable/enable per source without deleting config. Default: true. */
+  enabled?: boolean;
+  /** Optional per-source timeout override (ms). */
+  timeout_ms?: number;
+}
+
+export interface PriceSourcesConfig {
+  /** Master switch for external reference price fetching in KCB. Default: true. */
+  enabled?: boolean;
+  /** Quote ticker used for normalized output keys. Default: "USDT". */
+  quote_ticker?: string;
+  /** Ordered source list. KCB tries sources in this order. */
+  sources?: PriceSourceConfigItem[];
 }
 
 export interface CoinCacheMeta {

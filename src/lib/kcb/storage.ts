@@ -59,6 +59,26 @@ function defaultCoinSources(): CoinSourceConfig {
     coins_config_url: getKcbCoinsConfigUrl(),
     icons_base_url: getKcbIconsBaseUrl(),
     kdf_coins_url: "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins",
+    price_sources: {
+      enabled: true,
+      quote_ticker: "USDT",
+      sources: [
+        {
+          id: "komodo-earth-main",
+          type: "komodo_earth",
+          url: "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
+          enabled: true,
+          timeout_ms: 60000,
+        },
+        {
+          id: "coingecko-fallback",
+          type: "coingecko",
+          url: "https://api.coingecko.com/api/v3/simple/price",
+          enabled: true,
+          timeout_ms: 60000,
+        },
+      ],
+    },
   };
 }
 

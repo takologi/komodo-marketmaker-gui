@@ -85,7 +85,7 @@ By default KCB stores state under `~/.kcb` (override with `KCB_CONFIG_DIR`) with
 - `config/`
   - `bootstrap-config.json`
   - `kdf-capabilities.local.json`
-  - `coin-sources.json`
+  - `coin-sources.json` (coins/icons URLs + modular `price_sources` config)
 - `cache/coins/`
   - `coins_config.json`
   - `coins_config.meta.json`

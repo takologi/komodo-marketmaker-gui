@@ -50,7 +50,7 @@ Default root: `~/.kcb` (override with `KCB_CONFIG_DIR`).
 
 - `config/bootstrap-config.json`
 - `config/kdf-capabilities.local.json`
-- `config/coin-sources.json`
+- `config/coin-sources.json` (includes `price_sources` module config)
 - `cache/coins/coins_config.json`
 - `cache/coins/coins_config.meta.json`
 - `cache/icons/`
@@ -132,6 +132,9 @@ Use provided examples:
 
 - `deploy/examples/bootstrap-config.example.json`
 - `deploy/examples/coin-sources.example.json`
+
+`coin-sources.json` now also controls modular external reference-price sources used by KCB
+dashboard status aggregation. Configure source list and URLs under `price_sources.sources[]`.
 
 Write bootstrap config using:
 

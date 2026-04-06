@@ -19,6 +19,7 @@ import {
 import { ensureKcbLayout } from "@/lib/kcb/storage";
 import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
+import { fetchReferencePricesFromConfiguredSources } from "@/lib/kcb/prices/service";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
 interface PairStatus {
@@ -464,10 +465,12 @@ function emptyStatusRaw(): StatusViewRaw {
 
 export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
   await ensureKcbLayout();
-  const [rawStatusOptional, rawOrders, versionOptional] = await Promise.all([
+  const [rawStatusOptional, rawOrders, versionOptional, cfg, coinDefs] = await Promise.all([
     fetchSimpleMmStatusOptional(),
     fetchOrdersRaw(),
     fetchVersionOptional(),
+    getBootstrapConfig(),
+    getCoinDefinitions(),
   ]);
 
   const simpleMmStatus = rawStatusOptional.available
@@ -499,6 +502,25 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
   });
 
   const statusReferencePrices = parsePairReferencePrices(rawStatusOptional.raw);
+  const wantedTickers = new Set<string>();
+  for (const pair of normalizedConfiguredPairs) {
+    const [base, rel] = pair.split("/");
+    if (base) wantedTickers.add(base.toUpperCase());
+    if (rel) wantedTickers.add(rel.toUpperCase());
+  }
+  for (const coin of cfg.coins) {
+    if (coin.coin) wantedTickers.add(coin.coin.toUpperCase());
+  }
+
+  const externalReferencePrices = await fetchReferencePricesFromConfiguredSources({
+    tickers: Array.from(wantedTickers),
+    coinDefs,
+  });
+
+  const mergedReferencePrices = {
+    ...statusReferencePrices,
+    ...externalReferencePrices,
+  };
 
   return {
     connectionOk: true,
@@ -515,7 +537,7 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     pairsWithActiveOrders: pairStatuses.filter((pair) => pair.hasActiveOrders).length,
     activeOrderUuids,
     pairStatuses,
-    referencePricesByPair: statusReferencePrices,
+    referencePricesByPair: mergedReferencePrices,
     version: {
       available: versionOptional.available,
       value: versionOptional.available ? String(versionOptional.result ?? "available") : "not available",
