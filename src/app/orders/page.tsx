@@ -96,7 +96,7 @@ interface RenderOrderRow {
 }
 
 interface DashboardStatusLite {
-  referencePricesByPair?: Record<string, number>;
+  referencePricesByPair?: Record<string, number> | null;
 }
 
 function getUsdPrice(ticker: string, refs: Record<string, number>): number {

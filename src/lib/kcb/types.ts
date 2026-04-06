@@ -179,6 +179,8 @@ export interface PriceSourceConfigItem {
   enabled?: boolean;
   /** Optional per-source timeout override (ms). */
   timeout_ms?: number;
+  /** Optional per-source background refresh period (ms). Default: 30000. */
+  refresh_interval_ms?: number;
 }
 
 export interface PriceSourcesConfig {

@@ -147,6 +147,8 @@ Behavior:
 - KDF-provided pair prices from `get_simple_market_maker_status` are always consumed first.
 - KCB then augments missing coin USD references using pluggable source modules.
 - Normalized output keys are `TICKER/USDT` (or `TICKER/<quote_ticker>` if configured).
+- External source fetching is asynchronous in background; API reads return cached values.
+- Before first background refresh completes, cached reference output is `null`.
 
 Implementation modules:
 
@@ -185,6 +187,7 @@ Configuration (`config/coin-sources.json`):
   - `url`
   - `enabled`
   - `timeout_ms`
+  - `refresh_interval_ms` (per-source background period, default `30000`)
 
 KCB uses `coins_config.json` metadata (`coingecko_id`, `coinpaprika_id`) for source mapping when required
 (e.g. Coingecko/Coinpaprika sources), so coin metadata remains the primary schema authority.

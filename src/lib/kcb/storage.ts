@@ -69,6 +69,7 @@ function defaultCoinSources(): CoinSourceConfig {
           url: "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
           enabled: true,
           timeout_ms: 60000,
+          refresh_interval_ms: 30000,
         },
         {
           id: "coingecko-fallback",
@@ -76,6 +77,7 @@ function defaultCoinSources(): CoinSourceConfig {
           url: "https://api.coingecko.com/api/v3/simple/price",
           enabled: true,
           timeout_ms: 60000,
+          refresh_interval_ms: 30000,
         },
         {
           id: "coinpaprika-fallback",
@@ -83,6 +85,7 @@ function defaultCoinSources(): CoinSourceConfig {
           url: "https://api.coinpaprika.com/v1",
           enabled: true,
           timeout_ms: 60000,
+          refresh_interval_ms: 30000,
         },
       ],
     },

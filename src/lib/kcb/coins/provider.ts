@@ -21,6 +21,7 @@ const DEFAULT_PRICE_SOURCE_ITEMS: NonNullable<NonNullable<CoinSourceConfig["pric
     url: "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
     enabled: true,
     timeout_ms: 60000,
+    refresh_interval_ms: 30000,
   },
   {
     id: "coingecko-fallback",
@@ -28,6 +29,7 @@ const DEFAULT_PRICE_SOURCE_ITEMS: NonNullable<NonNullable<CoinSourceConfig["pric
     url: "https://api.coingecko.com/api/v3/simple/price",
     enabled: true,
     timeout_ms: 60000,
+    refresh_interval_ms: 30000,
   },
   {
     id: "coinpaprika-fallback",
@@ -35,6 +37,7 @@ const DEFAULT_PRICE_SOURCE_ITEMS: NonNullable<NonNullable<CoinSourceConfig["pric
     url: "https://api.coinpaprika.com/v1",
     enabled: true,
     timeout_ms: 60000,
+    refresh_interval_ms: 30000,
   },
 ];
 

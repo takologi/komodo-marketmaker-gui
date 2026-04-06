@@ -74,6 +74,15 @@ function normalizeTimeout(source: PriceSourceConfigItem): number {
   return getKcbHttpTimeoutMs();
 }
 
+function normalizeRefreshIntervalMs(source: PriceSourceConfigItem): number {
+  const configured =
+    typeof source.refresh_interval_ms === "number" ? source.refresh_interval_ms : Number.NaN;
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(1000, Math.floor(configured));
+  }
+  return 30_000;
+}
+
 function normalizeSourceEnabled(source: PriceSourceConfigItem): boolean {
   return source.enabled !== false;
 }
@@ -89,6 +98,226 @@ export interface ReferencePriceFetchDetails {
   quoteTicker: string;
   mergedByPair: Record<string, number>;
   byTickerBySource: Record<string, Record<string, number>>;
+}
+
+export interface CachedReferencePriceDetails {
+  quoteTicker: string;
+  mergedByPair: Record<string, number> | null;
+  byTickerBySource: Record<string, Record<string, number>> | null;
+}
+
+interface SourceRefreshState {
+  inFlight: boolean;
+  nextRunAt: number;
+  periodMs: number;
+}
+
+const runtimeState = {
+  initialized: false,
+  quoteTicker: "USDT",
+  knownAssetsByTicker: new Map<string, PriceAsset>(),
+  sourcePricesByTicker: {} as Record<string, Record<string, number>>,
+  byTickerBySource: {} as Record<string, Record<string, number>>,
+  mergedByPair: {} as Record<string, number>,
+  sourceRuntime: new Map<string, SourceRefreshState>(),
+};
+
+function upsertKnownAssets(assets: PriceAsset[]) {
+  for (const asset of assets) {
+    const key = asset.ticker.toUpperCase();
+    const existing = runtimeState.knownAssetsByTicker.get(key);
+    if (!existing) {
+      runtimeState.knownAssetsByTicker.set(key, asset);
+      continue;
+    }
+
+    runtimeState.knownAssetsByTicker.set(key, {
+      ticker: key,
+      coingeckoId: asset.coingeckoId || existing.coingeckoId,
+      coinpaprikaId: asset.coinpaprikaId || existing.coinpaprikaId,
+    });
+  }
+}
+
+function rebuildMergedCache(configuredSources: PriceSourceConfigItem[], quoteTicker: string) {
+  const byTickerBySource: Record<string, Record<string, number>> = {};
+  const mergedByTicker: Record<string, number> = {};
+
+  for (const source of configuredSources) {
+    const sourceRows = runtimeState.sourcePricesByTicker[source.id] || {};
+    for (const [tickerRaw, price] of Object.entries(sourceRows)) {
+      const ticker = tickerRaw.toUpperCase();
+      if (!Number.isFinite(price) || price <= 0) continue;
+
+      if (!byTickerBySource[ticker]) {
+        byTickerBySource[ticker] = {};
+      }
+      byTickerBySource[ticker][source.id] = price;
+
+      if (!(ticker in mergedByTicker)) {
+        mergedByTicker[ticker] = price;
+      }
+    }
+  }
+
+  const mergedByPair: Record<string, number> = {};
+  for (const [ticker, price] of Object.entries(mergedByTicker)) {
+    mergedByPair[`${ticker}/${quoteTicker}`] = price;
+  }
+
+  runtimeState.quoteTicker = quoteTicker;
+  runtimeState.byTickerBySource = byTickerBySource;
+  runtimeState.mergedByPair = mergedByPair;
+}
+
+function pruneRemovedSources(configuredSources: PriceSourceConfigItem[]) {
+  const sourceIds = new Set(configuredSources.map((source) => source.id));
+
+  for (const sourceId of Object.keys(runtimeState.sourcePricesByTicker)) {
+    if (!sourceIds.has(sourceId)) {
+      delete runtimeState.sourcePricesByTicker[sourceId];
+    }
+  }
+
+  for (const sourceId of Array.from(runtimeState.sourceRuntime.keys())) {
+    if (!sourceIds.has(sourceId)) {
+      runtimeState.sourceRuntime.delete(sourceId);
+    }
+  }
+}
+
+function scheduleDueSourceRefreshes(configuredSources: PriceSourceConfigItem[]) {
+  const assetsSnapshot = Array.from(runtimeState.knownAssetsByTicker.values());
+  if (assetsSnapshot.length === 0) return;
+
+  const now = Date.now();
+
+  for (const source of configuredSources) {
+    const fetcher = getSourceFetcher(source.type);
+    if (!fetcher) {
+      continue;
+    }
+
+    const periodMs = normalizeRefreshIntervalMs(source);
+    const state = runtimeState.sourceRuntime.get(source.id) || {
+      inFlight: false,
+      nextRunAt: 0,
+      periodMs,
+    };
+    state.periodMs = periodMs;
+    runtimeState.sourceRuntime.set(source.id, state);
+
+    if (state.inFlight || now < state.nextRunAt) {
+      continue;
+    }
+
+    state.inFlight = true;
+    state.nextRunAt = now + periodMs;
+
+    void (async () => {
+      await waitForSourceThrottleWindow(source.id);
+
+      try {
+        const result = await fetcher(source, {
+          assets: assetsSnapshot,
+          timeoutMs: normalizeTimeout(source),
+        });
+
+        const normalized: Record<string, number> = {};
+        for (const [tickerRaw, price] of Object.entries(result.pricesByTicker)) {
+          const ticker = tickerRaw.toUpperCase();
+          if (!Number.isFinite(price) || price <= 0) continue;
+          normalized[ticker] = price;
+        }
+
+        runtimeState.sourcePricesByTicker[source.id] = normalized;
+        await logDebugEvent({
+          severity: "info",
+          title: "KCB reference price source completed",
+          body: `Source ${source.id} returned ${Object.keys(normalized).length} price(s)`,
+          details: {
+            sourceId: source.id,
+            sourceType: source.type,
+            refreshIntervalMs: state.periodMs,
+            diagnostics: result.diagnostics,
+          },
+        });
+      } catch (error) {
+        await logDebugEvent({
+          severity: "warning",
+          title: "KCB reference price source failed",
+          body: `Source ${source.id} failed while refreshing reference prices`,
+          details: {
+            sourceId: source.id,
+            sourceType: source.type,
+            refreshIntervalMs: state.periodMs,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+      } finally {
+        state.inFlight = false;
+        runtimeState.initialized = true;
+        rebuildMergedCache(configuredSources, runtimeState.quoteTicker);
+      }
+    })();
+  }
+}
+
+export async function getCachedReferencePriceDetailsFromConfiguredSources(params: {
+  tickers: string[];
+  coinDefs: JsonValue;
+}): Promise<CachedReferencePriceDetails> {
+  const coinSources = await getCoinSourcesConfig();
+  const cfg = coinSources.price_sources;
+  const quoteTicker = (cfg?.quote_ticker || "USDT").toUpperCase();
+  runtimeState.quoteTicker = quoteTicker;
+
+  if (!cfg || cfg.enabled === false) {
+    runtimeState.initialized = true;
+    runtimeState.byTickerBySource = {};
+    runtimeState.mergedByPair = {};
+    return {
+      quoteTicker,
+      mergedByPair: {},
+      byTickerBySource: {},
+    };
+  }
+
+  const configuredSources = (cfg.sources || []).filter((source) => normalizeSourceEnabled(source));
+  if (configuredSources.length === 0) {
+    runtimeState.initialized = true;
+    runtimeState.byTickerBySource = {};
+    runtimeState.mergedByPair = {};
+    return {
+      quoteTicker,
+      mergedByPair: {},
+      byTickerBySource: {},
+    };
+  }
+
+  pruneRemovedSources(configuredSources);
+
+  const assets = buildAssets(params.tickers, params.coinDefs);
+  upsertKnownAssets(assets);
+
+  rebuildMergedCache(configuredSources, quoteTicker);
+  scheduleDueSourceRefreshes(configuredSources);
+
+  if (!runtimeState.initialized) {
+    return {
+      quoteTicker,
+      mergedByPair: null,
+      byTickerBySource: null,
+    };
+  }
+
+  return {
+    quoteTicker,
+    mergedByPair: { ...runtimeState.mergedByPair },
+    byTickerBySource: Object.fromEntries(
+      Object.entries(runtimeState.byTickerBySource).map(([ticker, bySource]) => [ticker, { ...bySource }]),
+    ),
+  };
 }
 
 export async function fetchReferencePriceDetailsFromConfiguredSources(params: {

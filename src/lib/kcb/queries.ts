@@ -19,7 +19,7 @@ import {
 import { ensureKcbLayout } from "@/lib/kcb/storage";
 import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
-import { fetchReferencePriceDetailsFromConfiguredSources } from "@/lib/kcb/prices/service";
+import { getCachedReferencePriceDetailsFromConfiguredSources } from "@/lib/kcb/prices/service";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
 interface PairStatus {
@@ -42,7 +42,7 @@ export interface KcbDashboardStatusView {
   pairsWithActiveOrders: number;
   activeOrderUuids: string[];
   pairStatuses: PairStatus[];
-  referencePricesByPair: Record<string, number>;
+  referencePricesByPair: Record<string, number> | null;
   version: {
     available: boolean;
     value: string;
@@ -512,15 +512,17 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     if (coin.coin) wantedTickers.add(coin.coin.toUpperCase());
   }
 
-  const externalReferenceDetails = await fetchReferencePriceDetailsFromConfiguredSources({
+  const externalReferenceDetails = await getCachedReferencePriceDetailsFromConfiguredSources({
     tickers: Array.from(wantedTickers),
     coinDefs,
   });
 
-  const mergedReferencePrices = {
-    ...statusReferencePrices,
-    ...externalReferenceDetails.mergedByPair,
-  };
+  const mergedReferencePrices = externalReferenceDetails.mergedByPair === null
+    ? null
+    : {
+      ...statusReferencePrices,
+      ...externalReferenceDetails.mergedByPair,
+    };
 
   return {
     connectionOk: true,
@@ -566,7 +568,7 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
     .map((coinCfg) => coinCfg.coin.toUpperCase())
     .filter((ticker, index, all) => Boolean(ticker) && all.indexOf(ticker) === index);
 
-  const externalReferenceDetails = await fetchReferencePriceDetailsFromConfiguredSources({
+  const externalReferenceDetails = await getCachedReferencePriceDetailsFromConfiguredSources({
     tickers: walletTickers,
     coinDefs,
   });
@@ -609,7 +611,7 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
           spendable,
           unspendable,
           referenceQuoteTicker: externalReferenceDetails.quoteTicker,
-          referencePricesBySource: externalReferenceDetails.byTickerBySource[ticker] ?? {},
+          referencePricesBySource: externalReferenceDetails.byTickerBySource?.[ticker] ?? null,
           requiredConfirmations: Number.isFinite(requiredConfirmations)
             ? requiredConfirmations
             : undefined,
@@ -628,7 +630,7 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
         coin: ticker,
         activated: false,
         referenceQuoteTicker: externalReferenceDetails.quoteTicker,
-        referencePricesBySource: externalReferenceDetails.byTickerBySource[ticker] ?? {},
+        referencePricesBySource: externalReferenceDetails.byTickerBySource?.[ticker] ?? null,
         error: coinErrorMap.get(ticker) ?? "Coin is not activated",
       };
     }),

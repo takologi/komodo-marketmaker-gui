@@ -50,7 +50,7 @@ export interface WalletViewEnriched {
   /** Quote ticker used for external reference prices (e.g. USDT). */
   referenceQuoteTicker?: string;
   /** External reference prices by source id, only reachable sources with values. */
-  referencePricesBySource?: Record<string, number>;
+  referencePricesBySource?: Record<string, number> | null;
   /** Activation error message — present only when `activated=false`. */
   error?: string;
 }
