@@ -67,7 +67,15 @@ export async function getResolvedPairs(): Promise<ResolvedPair[]> {
   function addIfNew(base: string, rel: string, source: ResolvedPair["source"]) {
     const key = pairKey(base, rel);
     if (!seen.has(key)) {
-      seen.set(key, { base, rel, show: true, show_all_orders: false, source });
+      seen.set(key, {
+        base,
+        rel,
+        show: true,
+        show_all_orders: false,
+        milli_base: false,
+        milli_rel: false,
+        source,
+      });
     }
   }
 
@@ -82,11 +90,28 @@ export async function getResolvedPairs(): Promise<ResolvedPair[]> {
   }
 
   // Step 3: apply gui-policy direction and display preferences
-  const guiPairMap = new Map<string, { base: string; rel: string; show?: boolean; show_all_orders?: boolean }>();
+  const guiPairMap = new Map<
+    string,
+    {
+      base: string;
+      rel: string;
+      show?: boolean;
+      show_all_orders?: boolean;
+      milli_base?: boolean;
+      milli_rel?: boolean;
+    }
+  >();
   for (const p of guiPolicy.trading_pairs) {
     const base = p.base.toUpperCase();
     const rel = p.rel.toUpperCase();
-    guiPairMap.set(pairKey(base, rel), { base, rel, show: p.show, show_all_orders: p.show_all_orders });
+    guiPairMap.set(pairKey(base, rel), {
+      base,
+      rel,
+      show: p.show,
+      show_all_orders: p.show_all_orders,
+      milli_base: p.milli_base,
+      milli_rel: p.milli_rel,
+    });
   }
 
   // Merge / add gui-policy entries.
@@ -99,6 +124,8 @@ export async function getResolvedPairs(): Promise<ResolvedPair[]> {
         rel: overrides.rel,
         show: overrides.show ?? existing.show,
         show_all_orders: overrides.show_all_orders ?? existing.show_all_orders,
+        milli_base: overrides.milli_base ?? existing.milli_base,
+        milli_rel: overrides.milli_rel ?? existing.milli_rel,
         source: existing.source,
       });
     } else {
@@ -108,6 +135,8 @@ export async function getResolvedPairs(): Promise<ResolvedPair[]> {
         rel: overrides.rel,
         show: overrides.show ?? true,
         show_all_orders: overrides.show_all_orders ?? false,
+        milli_base: overrides.milli_base ?? false,
+        milli_rel: overrides.milli_rel ?? false,
         source: "gui_policy",
       });
     }

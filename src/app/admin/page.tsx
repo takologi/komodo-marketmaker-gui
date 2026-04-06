@@ -308,6 +308,8 @@ interface PairRow {
   swapped: boolean;
   show: boolean;
   showAllOrders: boolean;
+  milliBase: boolean;
+  milliRel: boolean;
 }
 
 function pairKey(base: string, rel: string) {
@@ -322,10 +324,12 @@ function TradingPairsAdmin({ token }: { token: string }) {
   // When true, incoming server polls won't overwrite in-progress user edits.
   const [isDirty, setIsDirty] = useState(false);
 
-  function readLsOverrides(): Record<string, { hidden?: boolean; showAllOrders?: boolean }> {
+  function readLsOverrides(): Record<string, { hidden?: boolean; showAllOrders?: boolean; milliBase?: boolean; milliRel?: boolean }> {
     try {
       const raw = localStorage.getItem("kcb:pair-overrides");
-      return raw ? (JSON.parse(raw) as Record<string, { hidden?: boolean; showAllOrders?: boolean }>) : {};
+      return raw
+        ? (JSON.parse(raw) as Record<string, { hidden?: boolean; showAllOrders?: boolean; milliBase?: boolean; milliRel?: boolean }>)
+        : {};
     } catch {
       return {};
     }
@@ -347,6 +351,8 @@ function TradingPairsAdmin({ token }: { token: string }) {
           swapped: false,
           show: ls?.hidden !== undefined ? !ls.hidden : p.show,
           showAllOrders: ls?.showAllOrders !== undefined ? ls.showAllOrders : p.show_all_orders,
+          milliBase: ls?.milliBase !== undefined ? ls.milliBase : p.milli_base,
+          milliRel: ls?.milliRel !== undefined ? ls.milliRel : p.milli_rel,
         };
       }),
     );
@@ -360,11 +366,36 @@ function TradingPairsAdmin({ token }: { token: string }) {
     // Always sync localStorage, regardless of whether the token is set.
     try {
       const raw = localStorage.getItem("kcb:pair-overrides");
-      const lsOverrides: Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }> =
-        raw ? (JSON.parse(raw) as Record<string, { swapped?: boolean; hidden?: boolean; showAllOrders?: boolean }>) : {};
+      const lsOverrides: Record<
+        string,
+        {
+          swapped?: boolean;
+          hidden?: boolean;
+          showAllOrders?: boolean;
+          milliBase?: boolean;
+          milliRel?: boolean;
+        }
+      > = raw
+        ? (JSON.parse(raw) as Record<
+          string,
+          {
+            swapped?: boolean;
+            hidden?: boolean;
+            showAllOrders?: boolean;
+            milliBase?: boolean;
+            milliRel?: boolean;
+          }
+        >)
+        : {};
       for (const r of nextRows) {
         const key = `${r.base}/${r.rel}`;
-        lsOverrides[key] = { ...lsOverrides[key], hidden: !r.show, showAllOrders: r.showAllOrders };
+        lsOverrides[key] = {
+          ...lsOverrides[key],
+          hidden: !r.show,
+          showAllOrders: r.showAllOrders,
+          milliBase: r.milliBase,
+          milliRel: r.milliRel,
+        };
       }
       localStorage.setItem("kcb:pair-overrides", JSON.stringify(lsOverrides));
     } catch {
@@ -384,6 +415,8 @@ function TradingPairsAdmin({ token }: { token: string }) {
       rel: r.swapped ? r.base : r.rel,
       show: r.show,
       show_all_orders: r.showAllOrders,
+      milli_base: r.milliBase,
+      milli_rel: r.milliRel,
     }));
 
     try {
@@ -439,7 +472,9 @@ function TradingPairsAdmin({ token }: { token: string }) {
             <th>Pair</th>
             <th>Visible</th>
             <th>Show all orders</th>
-            <th>Swap sides</th>
+            <th>mBase</th>
+            <th>mRel</th>
+            <th>Switch pair</th>
           </tr>
         </thead>
         <tbody>
@@ -464,9 +499,26 @@ function TradingPairsAdmin({ token }: { token: string }) {
                   />
                 </td>
                 <td>
+                  <input
+                    type="checkbox"
+                    checked={row.milliBase}
+                    onChange={() => patchRow(row.base, row.rel, { milliBase: !row.milliBase })}
+                    title={`Display ${displayBase} amounts as m${displayBase}`}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={row.milliRel}
+                    onChange={() => patchRow(row.base, row.rel, { milliRel: !row.milliRel })}
+                    title={`Display ${displayRel} amounts as m${displayRel}`}
+                  />
+                </td>
+                <td>
                   <button
                     style={{ fontSize: "0.8em" }}
                     onClick={() => patchRow(row.base, row.rel, { swapped: !row.swapped })}
+                    title="Switch pair direction"
                   >
                     ⇄ {row.swapped ? `${row.rel}/${row.base}` : `${row.base}/${row.rel}`}
                   </button>

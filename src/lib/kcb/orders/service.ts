@@ -1,6 +1,7 @@
 import "server-only";
 
 import { logDebugEvent, pushPopupNotification } from "@/lib/debug/logger";
+import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { DirectOrderConfig, OrderbookEntry, PairOrderbook } from "@/lib/kcb/types";
 import {
   ensureMakerOrderWatcherStarted,
@@ -16,6 +17,7 @@ import {
   setMakerOrder,
 } from "@/lib/kdf/client";
 import { asNumber, asString } from "@/lib/kdf/adapters/common";
+import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
 // ---------------------------------------------------------------------------
 // KCB order management — Phase 1: direct order placement
@@ -33,6 +35,52 @@ import { asNumber, asString } from "@/lib/kdf/adapters/common";
  * Volumes below this threshold are treated as zero (floating-point dust guard).
  */
 const VOLUME_EPSILON = 1e-8;
+
+const DEFAULT_COIN_DECIMALS = 8;
+
+function findCoinDefinition(coinDefinitions: JsonValue, ticker: string): JsonObject | null {
+  const norm = ticker.toUpperCase();
+  const visited = new Set<JsonValue>();
+
+  function visit(node: JsonValue): JsonObject | null {
+    if (!node || typeof node !== "object") return null;
+    if (visited.has(node)) return null;
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = visit(item);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    const obj = node as JsonObject;
+    const coin = typeof obj.coin === "string" ? obj.coin.toUpperCase() : "";
+    if (coin === norm) return obj;
+
+    const direct = obj[norm];
+    if (direct && typeof direct === "object" && !Array.isArray(direct)) {
+      return direct as JsonObject;
+    }
+
+    for (const value of Object.values(obj)) {
+      const found = visit(value);
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  return visit(coinDefinitions);
+}
+
+function coinDecimals(coinDefinitions: JsonValue, ticker: string): number {
+  const coinDef = findCoinDefinition(coinDefinitions, ticker);
+  if (!coinDef) return DEFAULT_COIN_DECIMALS;
+  const decimals = asNumber(coinDef.decimals, DEFAULT_COIN_DECIMALS);
+  return Number.isFinite(decimals) ? Math.max(0, Math.floor(decimals)) : DEFAULT_COIN_DECIMALS;
+}
 
 /**
  * A single entry from the reverse orderbook that would cross the proposed order.
@@ -460,10 +508,11 @@ export async function applyDirectOrders(orders: DirectOrderConfig[]): Promise<Di
  * when its UUID is among our open orders.
  */
 export async function buildAnnotatedOrderbook(base: string, rel: string): Promise<PairOrderbook> {
-  const [asksRaw, bidsRaw, myOrdersRaw] = await Promise.all([
+  const [asksRaw, bidsRaw, myOrdersRaw, coinDefinitions] = await Promise.all([
     fetchOrderbookRaw(base, rel).catch(() => ({ asks: [], bids: [] })),
     fetchOrderbookRaw(rel, base).catch(() => ({ asks: [], bids: [] })),
     fetchOrdersRaw().catch(() => []),
+    getCoinDefinitions().catch(() => ({} as JsonValue)),
   ]);
 
   // Build a set of our own order UUIDs.
@@ -506,8 +555,8 @@ export async function buildAnnotatedOrderbook(base: string, rel: string): Promis
   }
 
   // Asks: entries from orderbook(base, rel) — price in (rel/base), volume in base.
-  // Sorted price descending (highest ask first — consistent with bids layout below).
-  const asks = normaliseEntries(asksRaw.asks, true);
+  // Sorted price ascending (lowest ask first).
+  const asks = normaliseEntries(asksRaw.asks, false);
 
   // Bids: entries from orderbook(rel, base) — their prices are in (base/rel) units
   // (inverted vs. what we want to display). Pass invertPriceVolume=true so that
@@ -523,5 +572,8 @@ export async function buildAnnotatedOrderbook(base: string, rel: string): Promis
     details: { base, rel, asks: asks.length, bids: bids.length, myOrders: myUuids.size },
   });
 
-  return { base, rel, asks, bids };
+  const baseDecimals = coinDecimals(coinDefinitions, base);
+  const relDecimals = coinDecimals(coinDefinitions, rel);
+
+  return { base, rel, baseDecimals, relDecimals, asks, bids };
 }

@@ -81,6 +81,57 @@ Limitations (current phase):
 - `/admin` restart now queues a high-priority KCB command.
 - `/commands` page displays queue/history and supports queueing selected commands.
 
+## Orders screen pair display (current behavior)
+
+For each resolved trading pair section in `/orders`:
+
+- Pair rows render with exactly 4 columns:
+  1. own-order marker (`●` for mine, equal-width blank for foreign)
+  2. `Price (X/Y)`
+  3. `Quantity (X)`
+  4. `Total (Y)`
+- Pair cards are rendered in a responsive multi-column grid (narrow cards, auto-fit on wide screens).
+- Numeric values inside pair sections use tabular numeric rendering with a fixed font stack.
+- Pair direction controls are labeled **"Switch pair"** (not "Swap sides").
+
+### Milli-unit display toggles
+
+- Per pair, two independent toggles are available in Orders and Admin:
+  - `mX` (milli-base)
+  - `mY` (milli-rel)
+- Conversion model:
+  - quantity(X) → `1000 * X` when `mX` is enabled
+  - total(Y) → `1000 * Y` when `mY` is enabled
+  - price(X/Y) scales by `(baseScale / relScale)` where each scale is `1000` when milli is enabled, else `1`
+- Admin persists these toggles in `gui-policy.json` (`milli_base`, `milli_rel`).
+
+### LTP and spread line
+
+- The separator line between asks and bids shows:
+  - `LTP: <value>` when non-zero LTP is available
+  - `LTP: (<highest bid> - <lowest ask>)` when LTP is zero/not initialized
+- Spread is displayed as:
+  - `spread: S [P %]`
+  - `S = lowest_ask - highest_bid`
+  - `P = (S / lowest_ask) * 100`
+- LTP values are cached by pair direction with inverse mapping:
+  - if `LTP(X,Y)=v`, then `LTP(Y,X)=1/v`
+
+### Precision rules
+
+- Price and absolute spread (`S`) use coin precision from `coins_config.json` decimals.
+- Spread percent (`P`), quantity, and total are displayed with 2 decimals.
+- Display precision does not alter internal numeric calculations.
+
+### Pair balances header
+
+Each pair section shows two lines for both coins:
+
+- **AVAILABLE** (bold): spendable wallet balance for `X` and `Y`
+- **LOCKED** (normal): amount currently locked in open orders for the shown pair/side
+
+Both respect milli toggles for display units.
+
 ## Direct orders
 
 Direct orders are verbatim maker orders defined in `bootstrap-config.json` under `direct_orders`.

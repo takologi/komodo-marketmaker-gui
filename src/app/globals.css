@@ -169,6 +169,163 @@ a {
   gap: 1rem;
 }
 
+.pair-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0.8rem;
+}
+
+.pair-card {
+  min-width: 0;
+}
+
+.pair-header {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.pair-title {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pair-title-meta {
+  font-weight: normal;
+  font-size: 0.8em;
+}
+
+.pair-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.pair-control-check {
+  font-size: 0.85em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.pair-balance {
+  margin-top: 0.5rem;
+}
+
+.pair-balance-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.pair-balance-row.available {
+  font-weight: 700;
+}
+
+.pair-balance-row.locked {
+  margin-top: 0.18rem;
+}
+
+.pair-balance-row .right {
+  text-align: right;
+}
+
+.pair-orderbook {
+  margin-top: 0.58rem;
+}
+
+.orderbook-grid {
+  display: grid;
+  grid-template-columns: 1.4rem 1fr 1fr 1fr;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.orderbook-grid.header {
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding: 0.3rem 0;
+  font-size: 0.88rem;
+}
+
+.orderbook-row {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.orderbook-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.orderbook-row .orderbook-grid {
+  position: relative;
+  z-index: 1;
+  padding: 0.32rem 0;
+}
+
+.depth-bar {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  opacity: 0.22;
+}
+
+.depth-bar.ask {
+  background: #d73a49;
+}
+
+.depth-bar.bid {
+  background: #28a745;
+}
+
+.ltp-spread-row {
+  border-top: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  padding: 0.34rem 0.2rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 920px) {
+  .pair-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .orderbook-grid {
+    gap: 0.38rem;
+  }
+
+  .orderbook-grid.header {
+    font-size: 0.8rem;
+  }
+
+  .pair-balance-row {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+
+  .pair-balance-row .right {
+    text-align: left;
+  }
+
+  .ltp-spread-row {
+    justify-content: flex-start;
+  }
+}
+
 .summary-grid {
   display: grid;
   gap: 0.8rem;

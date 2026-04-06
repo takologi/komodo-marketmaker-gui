@@ -90,6 +90,10 @@ export interface GuiPairPolicy {
   show?: boolean;
   /** Whether to show orders from all market participants or only own orders. Default: false. */
   show_all_orders?: boolean;
+  /** Display amounts in milli-base units (mBASE). */
+  milli_base?: boolean;
+  /** Display amounts in milli-rel units (mREL). */
+  milli_rel?: boolean;
 }
 
 export interface GuiPolicy {
@@ -107,6 +111,8 @@ export interface ResolvedPair {
   rel: string;
   show: boolean;
   show_all_orders: boolean;
+  milli_base: boolean;
+  milli_rel: boolean;
   /** How this pair entered the resolved list. */
   source: "direct_orders" | "simple_mm_cfg" | "gui_policy";
   /** Activation error for the base coin, if it failed to activate. */
@@ -131,6 +137,10 @@ export interface OrderbookEntry {
 export interface PairOrderbook {
   base: string;
   rel: string;
+  /** Base coin decimals from coins_config (fallback 8). */
+  baseDecimals: number;
+  /** Rel coin decimals from coins_config (fallback 8). */
+  relDecimals: number;
   /**
    * Asks: offers to sell base for rel.
    * Sorted price ascending (cheapest ask first — classic order book ask side).
