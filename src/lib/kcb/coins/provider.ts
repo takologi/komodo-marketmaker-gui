@@ -41,6 +41,15 @@ const DEFAULT_PRICE_SOURCE_ITEMS: NonNullable<NonNullable<CoinSourceConfig["pric
     timeout_ms: 60000,
     refresh_interval_ms: 300000,
   },
+  {
+    id: "livecoinwatch-fallback",
+    type: "livecoinwatch",
+    url: "https://api.livecoinwatch.com",
+    api_key: "",
+    enabled: true,
+    timeout_ms: 60000,
+    refresh_interval_ms: 30000,
+  },
 ];
 
 function cloneDefaultPriceSourceItems(): NonNullable<NonNullable<CoinSourceConfig["price_sources"]>["sources"]> {

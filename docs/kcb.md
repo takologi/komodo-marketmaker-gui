@@ -155,6 +155,7 @@ Implementation modules:
 - `src/lib/kcb/prices/sources/komodo-earth.ts`
 - `src/lib/kcb/prices/sources/coingecko.ts`
 - `src/lib/kcb/prices/sources/coinpaprika.ts`
+- `src/lib/kcb/prices/sources/livecoinwatch.ts`
 
 Source orchestration:
 
@@ -183,8 +184,9 @@ Configuration (`config/coin-sources.json`):
 - `price_sources.quote_ticker` — output quote (default `USDT`)
 - `price_sources.sources[]` — ordered list of source modules and URLs
   - `id` (unique source name)
-  - `type` (`komodo_earth`, `coingecko`, or `coinpaprika`)
+  - `type` (`komodo_earth`, `coingecko`, `coinpaprika`, or `livecoinwatch`)
   - `url`
+  - `api_key` (used by authenticated sources like `livecoinwatch`)
   - `enabled`
   - `timeout_ms`
   - `refresh_interval_ms` (per-source background period, default `30000`)
@@ -196,8 +198,8 @@ Operational notes:
 - `coinpaprika` free tier can throttle aggressively; prefer a longer
   `refresh_interval_ms` (e.g. `300000`) to avoid `402/429` API responses.
 
-KCB uses `coins_config.json` metadata (`coingecko_id`, `coinpaprika_id`) for source mapping when required
-(e.g. Coingecko/Coinpaprika sources), so coin metadata remains the primary schema authority.
+KCB uses `coins_config.json` metadata (`coingecko_id`, `coinpaprika_id`, `livecoinwatch_id`) for source mapping when required
+(e.g. Coingecko/Coinpaprika/LiveCoinWatch sources), so coin metadata remains the primary schema authority.
 
 Legacy `coin-sources.json` files are auto-upgraded on read if `price_sources` or default source entries are missing.
 

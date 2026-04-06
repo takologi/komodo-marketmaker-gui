@@ -10,6 +10,7 @@ import { PriceAsset, PriceSourceFetcher } from "@/lib/kcb/prices/types";
 import { fetchFromKomodoEarth } from "@/lib/kcb/prices/sources/komodo-earth";
 import { fetchFromCoingecko } from "@/lib/kcb/prices/sources/coingecko";
 import { fetchFromCoinpaprika } from "@/lib/kcb/prices/sources/coinpaprika";
+import { fetchFromLiveCoinWatch } from "@/lib/kcb/prices/sources/livecoinwatch";
 import { waitForSourceThrottleWindow } from "@/lib/kcb/prices/throttling";
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
@@ -62,6 +63,7 @@ function buildAssets(tickers: string[], coinDefs: JsonValue): PriceAsset[] {
       ticker: normalizedTicker,
       coingeckoId: parseCoinMetadataId(def, "coingecko_id", "coingeckoId"),
       coinpaprikaId: parseCoinMetadataId(def, "coinpaprika_id", "coinpaprikaId"),
+      livecoinwatchId: parseCoinMetadataId(def, "livecoinwatch_id", "livecoinwatchId"),
     });
   }
 
@@ -91,6 +93,7 @@ function getSourceFetcher(type: PriceSourceConfigItem["type"]): PriceSourceFetch
   if (type === "komodo_earth") return fetchFromKomodoEarth;
   if (type === "coingecko") return fetchFromCoingecko;
   if (type === "coinpaprika") return fetchFromCoinpaprika;
+  if (type === "livecoinwatch") return fetchFromLiveCoinWatch;
   return null;
 }
 

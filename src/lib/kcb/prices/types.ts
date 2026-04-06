@@ -5,6 +5,7 @@ export interface PriceAsset {
   ticker: string;
   coingeckoId?: string;
   coinpaprikaId?: string;
+  livecoinwatchId?: string;
 }
 
 export interface PriceSourceContext {

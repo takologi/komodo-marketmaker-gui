@@ -166,7 +166,7 @@ export interface CoinSourceConfig {
   price_sources?: PriceSourcesConfig;
 }
 
-export type PriceSourceType = "komodo_earth" | "coingecko" | "coinpaprika";
+export type PriceSourceType = "komodo_earth" | "coingecko" | "coinpaprika" | "livecoinwatch";
 
 export interface PriceSourceConfigItem {
   /** Stable source identifier (for logs and diagnostics), e.g. "komodo-earth-main". */
@@ -175,6 +175,8 @@ export interface PriceSourceConfigItem {
   type: PriceSourceType;
   /** Source endpoint URL. */
   url: string;
+  /** Optional API key for authenticated sources (e.g. LiveCoinWatch). */
+  api_key?: string;
   /** Disable/enable per source without deleting config. Default: true. */
   enabled?: boolean;
   /** Optional per-source timeout override (ms). */
