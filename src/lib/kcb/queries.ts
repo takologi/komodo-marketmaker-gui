@@ -13,6 +13,7 @@ import {
   fetchCoinBalanceSafe,
   fetchMovementsRawWithAvailability,
   fetchTxHistoryRawOptional,
+  OrderViewRaw,
   StatusViewRaw,
   TxHistoryRaw,
 } from "@/lib/kdf/client";
@@ -21,11 +22,8 @@ import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
 import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
-const REF_PRICE_ENDPOINTS = [
-  "https://prices.gleec.com/api/v2/tickers",
-  "https://prices.cipig.net:1717/api/v2/tickers",
-  "https://defistats.gleec.com/api/v3/prices/tickers_v2",
-];
+const COINPAPRIKA_BASE_URL = "https://api.coinpaprika.com/v1";
+const COINGECKO_SIMPLE_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price";
 
 interface PairStatus {
   pair: string;
@@ -89,88 +87,43 @@ function parsePairReferencePrices(raw: StatusViewRaw | undefined): Record<string
   return output;
 }
 
-async function fetchReferencePricesByPairOptional(): Promise<Record<string, number>> {
-  for (const endpoint of REF_PRICE_ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8_000);
-      const response = await fetch(endpoint, {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-
-      if (!response.ok) {
-        await logDebugEvent({
-          severity: "warning",
-          title: "KCB reference price endpoint error",
-          body: `Reference price source returned HTTP ${response.status}`,
-          details: { endpoint, status: response.status },
-        });
-        continue;
-      }
-
-      const json = (await response.json()) as JsonValue;
-      if (!isJsonObject(json)) {
-        await logDebugEvent({
-          severity: "warning",
-          title: "KCB reference price endpoint shape",
-          body: "Reference price response is not an object",
-          details: { endpoint },
-        });
-        continue;
-      }
-
-      const map: Record<string, number> = {};
-      for (const [ticker, row] of Object.entries(json)) {
-        const normalizedTicker = ticker.toUpperCase();
-        if (!normalizedTicker) continue;
-
-        let price = Number.NaN;
-        if (isJsonObject(row)) {
-          price = asNumber(row.last_price ?? row.price ?? row.last, Number.NaN);
-        } else {
-          price = asNumber(row, Number.NaN);
-        }
-
-        if (Number.isFinite(price) && price >= 0) {
-          map[`${normalizedTicker}/USDT`] = price;
-        }
-      }
-
-      await logDebugEvent({
-        severity: "debug",
-        title: "KCB reference prices refreshed",
-        body: `Loaded ${Object.keys(map).length} reference prices`,
-        details: {
-          endpoint,
-          ltc_usdt: map["LTC/USDT"] ?? null,
-          btc_usdt: map["BTC/USDT"] ?? null,
-        },
-      });
-
-      return map;
-    } catch (error) {
-      await logDebugEvent({
-        severity: "warning",
-        title: "KCB reference price endpoint failed",
-        body: "Failed to fetch reference prices from endpoint",
-        details: {
-          endpoint,
-          message: error instanceof Error ? error.message : String(error),
-        },
-      });
-    }
+function parseCoinMetadataId(def: JsonObject | null, ...keys: string[]): string | undefined {
+  if (!def) return undefined;
+  for (const key of keys) {
+    const value = def[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
+  return undefined;
+}
 
-  await logDebugEvent({
-    severity: "warning",
-    title: "KCB reference prices unavailable",
-    body: "All configured reference price endpoints failed; reference prices are empty",
-    details: { endpoints: REF_PRICE_ENDPOINTS },
-  });
+function normalizeBaseExplorerUrl(raw: string): string {
+  return raw.trim().replace(/\/$/, "");
+}
 
-  return {};
+function buildTemplateFromExplorerBase(baseUrl: string, kind: "tx" | "address"): string {
+  const base = normalizeBaseExplorerUrl(baseUrl);
+  return `${base}/${kind}/{id}`;
+}
+
+function resolveExplorerTemplate(rawTemplate: string, baseUrl?: string): string {
+  const template = normalizeExplorerTemplate(rawTemplate);
+  if (!template) return "";
+  if (/^https?:\/\//i.test(template)) return template;
+
+  const base = typeof baseUrl === "string" && baseUrl.trim() ? normalizeBaseExplorerUrl(baseUrl) : "";
+  if (!base) return template;
+
+  if (template.startsWith("/")) return `${base}${template}`;
+  return `${base}/${template}`;
+}
+
+function pickExplorerBaseUrl(def: JsonObject | null): string | undefined {
+  if (!def) return undefined;
+  const candidates = [def.explorer_url, def.explorer, def.block_explorer_url];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return normalizeBaseExplorerUrl(candidate);
+  }
+  return undefined;
 }
 
 function pickCoinDefinitionByTicker(coinDefs: JsonValue, ticker: string): JsonObject | null {
@@ -204,6 +157,7 @@ function normalizeExplorerTemplate(raw: string): string {
 
 function pickTxExplorerTemplate(def: JsonObject | null): string | undefined {
   if (!def) return undefined;
+  const baseExplorerUrl = pickExplorerBaseUrl(def);
 
   const directCandidates = [
     def.tx_explorer_url,
@@ -214,7 +168,7 @@ function pickTxExplorerTemplate(def: JsonObject | null): string | undefined {
   ];
   for (const candidate of directCandidates) {
     if (typeof candidate === "string" && candidate.trim()) {
-      return normalizeExplorerTemplate(candidate);
+      return resolveExplorerTemplate(candidate, baseExplorerUrl);
     }
   }
 
@@ -236,16 +190,39 @@ function pickTxExplorerTemplate(def: JsonObject | null): string | undefined {
         ];
         for (const candidate of objectCandidates) {
           if (typeof candidate === "string" && candidate.trim()) {
-            return normalizeExplorerTemplate(candidate);
+            return resolveExplorerTemplate(candidate, baseExplorerUrl);
           }
         }
       }
     }
   }
 
-  const fallback = def.explorer_url ?? def.explorer;
-  if (typeof fallback === "string" && fallback.trim()) {
-    return normalizeExplorerTemplate(fallback);
+  if (baseExplorerUrl) {
+    return buildTemplateFromExplorerBase(baseExplorerUrl, "tx");
+  }
+
+  return undefined;
+}
+
+function pickAddressExplorerTemplate(def: JsonObject | null): string | undefined {
+  if (!def) return undefined;
+  const baseExplorerUrl = pickExplorerBaseUrl(def);
+
+  const directCandidates = [
+    def.address_explorer_url,
+    def.explorer_address_url,
+    def.address_url,
+    def.addr_url,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return resolveExplorerTemplate(candidate, baseExplorerUrl);
+    }
+  }
+
+  if (baseExplorerUrl) {
+    return buildTemplateFromExplorerBase(baseExplorerUrl, "address");
   }
 
   return undefined;
@@ -253,6 +230,10 @@ function pickTxExplorerTemplate(def: JsonObject | null): string | undefined {
 
 function buildExplorerTxUrl(template: string | undefined, txid: string): string | undefined {
   if (!template || !txid) return undefined;
+
+  if (template.includes("{id}")) {
+    return template.replaceAll("{id}", txid);
+  }
 
   if (template.includes("{txid}")) {
     return template.replaceAll("{txid}", txid);
@@ -262,8 +243,37 @@ function buildExplorerTxUrl(template: string | undefined, txid: string): string 
     return template.replace("%s", txid);
   }
 
+  if (/\/tx\/?$/i.test(template)) {
+    const normalized = template.endsWith("/") ? template : `${template}/`;
+    return `${normalized}${txid}`;
+  }
+
   const normalized = template.endsWith("/") ? template : `${template}/`;
   return `${normalized}tx/${txid}`;
+}
+
+function buildExplorerAddressUrl(template: string | undefined, address: string): string | undefined {
+  if (!template || !address) return undefined;
+
+  if (template.includes("{id}")) {
+    return template.replaceAll("{id}", address);
+  }
+
+  if (template.includes("{address}")) {
+    return template.replaceAll("{address}", address);
+  }
+
+  if (template.includes("%s")) {
+    return template.replace("%s", address);
+  }
+
+  if (/\/address\/?$/i.test(template)) {
+    const normalized = template.endsWith("/") ? template : `${template}/`;
+    return `${normalized}${address}`;
+  }
+
+  const normalized = template.endsWith("/") ? template : `${template}/`;
+  return `${normalized}address/${address}`;
 }
 
 function pickString(...values: Array<JsonValue | undefined>): string | undefined {
@@ -273,25 +283,79 @@ function pickString(...values: Array<JsonValue | undefined>): string | undefined
   return undefined;
 }
 
-function toWalletTxHistoryRows(rows: TxHistoryRaw[], explorerTemplate?: string): WalletTxHistoryItem[] {
+function parseStringArray(value: JsonValue | undefined): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim()) {
+      out.push(item.trim());
+      continue;
+    }
+
+    if (isJsonObject(item)) {
+      const address = pickString(item.address, item.addr, item.value, item.account);
+      if (address) out.push(address);
+    }
+  }
+
+  return out;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+function deriveDirection(amount: number | undefined, fromAddresses: string[], toAddresses: string[]) {
+  if (Number.isFinite(amount ?? Number.NaN)) {
+    if ((amount as number) > 0) return "received" as const;
+    if ((amount as number) < 0) return "sent" as const;
+    return "self" as const;
+  }
+
+  if (fromAddresses.length > 0 && toAddresses.length > 0) return "self" as const;
+  if (toAddresses.length > 0) return "received" as const;
+  if (fromAddresses.length > 0) return "sent" as const;
+  return "unknown" as const;
+}
+
+function toWalletTxHistoryRows(
+  rows: TxHistoryRaw[],
+  txExplorerTemplate?: string,
+  addressExplorerTemplate?: string,
+): WalletTxHistoryItem[] {
   return rows
     .map((row) => {
       const txid = pickString(row.tx_hash, row.txid, row.hash, row.internal_id, row.id);
       if (!txid) return null;
 
+      const fromAddresses = dedupeStrings(parseStringArray(row.from));
+      const toAddresses = dedupeStrings(parseStringArray(row.to));
+
       const amount = asNumber(
         row.my_balance_change ?? row.received_by_me ?? row.spent_by_me ?? row.amount,
         Number.NaN,
       );
+      const normalizedAmount = Number.isFinite(amount) ? amount : undefined;
+      const direction = deriveDirection(normalizedAmount, fromAddresses, toAddresses);
 
       return {
         txid,
         timestamp: asNumber(row.timestamp ?? row.time, Number.NaN),
-        amount: Number.isFinite(amount) ? amount : undefined,
+        amount: normalizedAmount,
+        direction,
+        fromAddresses,
+        toAddresses,
+        fromExplorerUrls: fromAddresses.map((address) => buildExplorerAddressUrl(addressExplorerTemplate, address) ?? ""),
+        toExplorerUrls: toAddresses.map((address) => buildExplorerAddressUrl(addressExplorerTemplate, address) ?? ""),
         confirmations: asNumber(row.confirmations, Number.NaN),
         blockHeight: asNumber(row.block_height ?? row.height, Number.NaN),
         blockHash: pickString(row.block_hash),
-        explorerUrl: buildExplorerTxUrl(explorerTemplate, txid),
+        explorerUrl: buildExplorerTxUrl(txExplorerTemplate, txid),
       } as WalletTxHistoryItem;
     })
     .filter((row): row is WalletTxHistoryItem => Boolean(row))
@@ -300,7 +364,152 @@ function toWalletTxHistoryRows(rows: TxHistoryRaw[], explorerTemplate?: string):
       timestamp: Number.isFinite(row.timestamp ?? Number.NaN) ? row.timestamp : undefined,
       confirmations: Number.isFinite(row.confirmations ?? Number.NaN) ? row.confirmations : undefined,
       blockHeight: Number.isFinite(row.blockHeight ?? Number.NaN) ? row.blockHeight : undefined,
+      fromExplorerUrls: row.fromExplorerUrls?.map((url) => url || undefined).filter((v): v is string => Boolean(v)),
+      toExplorerUrls: row.toExplorerUrls?.map((url) => url || undefined).filter((v): v is string => Boolean(v)),
     }));
+}
+
+function parseOrderSide(raw: OrderViewRaw): "sell" | "buy" | "unknown" {
+  const side = asString(raw.side ?? raw.order_type ?? raw.type, "").toLowerCase();
+  if (side.includes("sell") || side.includes("ask")) return "sell";
+  if (side.includes("buy") || side.includes("bid")) return "buy";
+
+  const method = asString(raw.method, "").toLowerCase();
+  if (method === "setprice") return "sell";
+
+  return "unknown";
+}
+
+function parseOrderVolumeBase(raw: OrderViewRaw): number {
+  const candidates = [
+    raw.available_amount,
+    raw.max_base_vol,
+    raw.base_max_volume,
+    raw.volume,
+    raw.base_amount,
+  ];
+
+  for (const value of candidates) {
+    const parsed = asNumber(value, Number.NaN);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  return 0;
+}
+
+function parseOrderPrice(raw: OrderViewRaw): number {
+  const candidates = [raw.price, raw.price_rat, raw.avg_price];
+  for (const value of candidates) {
+    const parsed = asNumber(value, Number.NaN);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return 0;
+}
+
+function computeLockedByCoin(orders: OrderViewRaw[]): Map<string, number> {
+  const locked = new Map<string, number>();
+
+  for (const order of orders) {
+    const base = asString(order.base, "").toUpperCase();
+    const rel = asString(order.rel, "").toUpperCase();
+    const baseVolume = parseOrderVolumeBase(order);
+    const price = parseOrderPrice(order);
+    const side = parseOrderSide(order);
+
+    if (!base || !rel || baseVolume <= 0) continue;
+
+    if (side === "sell" || side === "unknown") {
+      locked.set(base, (locked.get(base) ?? 0) + baseVolume);
+      continue;
+    }
+
+    const relAmount = price > 0 ? baseVolume * price : 0;
+    if (relAmount > 0) {
+      locked.set(rel, (locked.get(rel) ?? 0) + relAmount);
+    }
+  }
+
+  return locked;
+}
+
+async function fetchReferencePricesByCoinMetadataOptional(params: {
+  tickers: string[];
+  coinDefs: JsonValue;
+}): Promise<Record<string, number>> {
+  const output: Record<string, number> = {};
+  const seenCoinpaprika = new Set<string>();
+  const seenCoingecko = new Set<string>();
+
+  for (const ticker of params.tickers) {
+    const normalizedTicker = ticker.toUpperCase();
+    if (!normalizedTicker) continue;
+
+    const def = pickCoinDefinitionByTicker(params.coinDefs, normalizedTicker);
+    const coinpaprikaId = parseCoinMetadataId(def, "coinpaprika_id", "coinpaprikaId");
+    const coingeckoId = parseCoinMetadataId(def, "coingecko_id", "coingeckoId");
+
+    if (coinpaprikaId && !seenCoinpaprika.has(coinpaprikaId)) {
+      seenCoinpaprika.add(coinpaprikaId);
+      try {
+        const response = await fetch(`${COINPAPRIKA_BASE_URL}/tickers/${encodeURIComponent(coinpaprikaId)}`, {
+          cache: "no-store",
+        });
+        if (response.ok) {
+          const json = (await response.json()) as JsonValue;
+          if (isJsonObject(json)) {
+            const price = asNumber(
+              (json.quotes as JsonObject | undefined)?.USD && isJsonObject((json.quotes as JsonObject).USD)
+                ? ((json.quotes as JsonObject).USD as JsonObject).price
+                : undefined,
+              Number.NaN,
+            );
+            if (Number.isFinite(price) && price >= 0) {
+              output[`${normalizedTicker}/USDT`] = price;
+              continue;
+            }
+          }
+        }
+      } catch {
+        // fall through to next provider
+      }
+    }
+
+    if (coingeckoId && !seenCoingecko.has(coingeckoId)) {
+      seenCoingecko.add(coingeckoId);
+      try {
+        const response = await fetch(
+          `${COINGECKO_SIMPLE_PRICE_URL}?ids=${encodeURIComponent(coingeckoId)}&vs_currencies=usd`,
+          { cache: "no-store" },
+        );
+        if (response.ok) {
+          const json = (await response.json()) as JsonValue;
+          if (isJsonObject(json)) {
+            const row = json[coingeckoId];
+            if (isJsonObject(row)) {
+              const price = asNumber(row.usd, Number.NaN);
+              if (Number.isFinite(price) && price >= 0) {
+                output[`${normalizedTicker}/USDT`] = price;
+              }
+            }
+          }
+        }
+      } catch {
+        // keep partial map
+      }
+    }
+  }
+
+  await logDebugEvent({
+    severity: "debug",
+    title: "KCB metadata reference prices refreshed",
+    body: `Loaded ${Object.keys(output).length} metadata-based reference prices`,
+    details: {
+      tickers: params.tickers,
+      pricesFound: Object.keys(output).slice(0, 20),
+    },
+  });
+
+  return output;
 }
 
 function parseConfiguredPairs(raw: StatusViewRaw, statusPair: string): string[] {
@@ -348,11 +557,12 @@ function emptyStatusRaw(): StatusViewRaw {
 
 export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
   await ensureKcbLayout();
-  const [rawStatusOptional, rawOrders, versionOptional, endpointReferencePrices] = await Promise.all([
+  const [rawStatusOptional, rawOrders, versionOptional, cfg, coinDefs] = await Promise.all([
     fetchSimpleMmStatusOptional(),
     fetchOrdersRaw(),
     fetchVersionOptional(),
-    fetchReferencePricesByPairOptional(),
+    getBootstrapConfig(),
+    getCoinDefinitions(),
   ]);
 
   const simpleMmStatus = rawStatusOptional.available
@@ -384,6 +594,19 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
   });
 
   const statusReferencePrices = parsePairReferencePrices(rawStatusOptional.raw);
+  const wantedTickers = new Set<string>();
+  for (const pair of normalizedConfiguredPairs) {
+    const [base, rel] = pair.split("/");
+    if (base) wantedTickers.add(base.toUpperCase());
+    if (rel) wantedTickers.add(rel.toUpperCase());
+  }
+  for (const coin of cfg.coins) {
+    if (coin.coin) wantedTickers.add(coin.coin.toUpperCase());
+  }
+  const endpointReferencePrices = await fetchReferencePricesByCoinMetadataOptional({
+    tickers: Array.from(wantedTickers),
+    coinDefs,
+  });
   const mergedReferencePrices = {
     ...statusReferencePrices,
     ...endpointReferencePrices,
@@ -422,11 +645,13 @@ export async function getKcbOrders() {
 
 export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
   await ensureKcbLayout();
-  const [cfg, lastApply, coinDefs] = await Promise.all([
+  const [cfg, lastApply, coinDefs, rawOrders] = await Promise.all([
     getBootstrapConfig(),
     getLastApplyState(),
     getCoinDefinitions(),
+    fetchOrdersRaw(),
   ]);
+  const lockedByCoin = computeLockedByCoin(rawOrders);
 
   // Build coin → activation error map from last-apply error strings.
   // Expected format: "activation failed for BTC: <reason>"
@@ -446,13 +671,16 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
         const balance = asNumber(raw.balance);
         const unspendable = asNumber(raw.unspendable_balance, 0);
         const explicitSpendable = asNumber(raw.spendable_balance ?? raw.available, Number.NaN);
-        const spendable = Number.isNaN(explicitSpendable)
+        const spendableBeforeOrderLocks = Number.isNaN(explicitSpendable)
           ? Math.max(0, balance - unspendable)
           : Math.max(0, explicitSpendable);
+        const lockedInOrders = lockedByCoin.get(ticker) ?? 0;
+        const spendable = Math.max(0, spendableBeforeOrderLocks - lockedInOrders);
         const requiredConfirmations = asNumber(raw.required_confirmations, Number.NaN);
 
         const coinDef = pickCoinDefinitionByTicker(coinDefs, ticker);
-        const explorerTemplate = pickTxExplorerTemplate(coinDef);
+        const txExplorerTemplate = pickTxExplorerTemplate(coinDef);
+        const addressExplorerTemplate = pickAddressExplorerTemplate(coinDef);
         const txHistoryRaw = await fetchTxHistoryRawOptional(ticker, 20);
 
         return {
@@ -468,7 +696,11 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
           txHistory: {
             available: txHistoryRaw.available,
             message: txHistoryRaw.message,
-            rows: toWalletTxHistoryRows(txHistoryRaw.rows, explorerTemplate),
+            rows: toWalletTxHistoryRows(
+              txHistoryRaw.rows,
+              txExplorerTemplate,
+              addressExplorerTemplate,
+            ),
           },
         };
       }

@@ -17,6 +17,58 @@ function formatSignedAmount(value?: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(8)}`;
 }
 
+function txDirectionBadge(direction?: "sent" | "received" | "self" | "unknown") {
+  switch (direction) {
+    case "received":
+      return { icon: "⬇", label: "received" };
+    case "sent":
+      return { icon: "⬆", label: "sent" };
+    case "self":
+      return { icon: "⇄", label: "self transfer" };
+    default:
+      return { icon: "•", label: "unknown" };
+  }
+}
+
+function AddressList({
+  title,
+  addresses,
+  explorerUrls,
+}: {
+  title: string;
+  addresses?: string[];
+  explorerUrls?: string[];
+}) {
+  const rows = addresses ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={{ display: "grid", gap: "0.1rem" }}>
+      <div>{title}:</div>
+      <div style={{ display: "grid", gap: "0.2rem", paddingLeft: "0.5rem" }}>
+        {rows.map((address, index) => {
+          const href = explorerUrls?.[index];
+          return href ? (
+            <a
+              key={`${title}-${address}-${index}`}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              style={{ textDecoration: "underline", wordBreak: "break-all" }}
+            >
+              <code>{address}</code>
+            </a>
+          ) : (
+            <code key={`${title}-${address}-${index}`} style={{ wordBreak: "break-all" }}>
+              {address}
+            </code>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -120,27 +172,40 @@ function WalletCard({ wallet }: { wallet: WalletViewEnriched }) {
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", flexWrap: "wrap" }}>
-                        <code style={{ fontSize: "0.8em", wordBreak: "break-all" }}>{tx.txid}</code>
-                        {tx.explorerUrl ? (
-                          <a
-                            href={tx.explorerUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="muted"
-                            style={{ fontSize: "0.8em", textDecoration: "underline" }}
-                          >
-                            explorer ↗
-                          </a>
-                        ) : null}
+                        <strong style={{ fontSize: "0.82em" }}>
+                          {txDirectionBadge(tx.direction).icon} {txDirectionBadge(tx.direction).label}
+                        </strong>
+                        <span style={{ fontSize: "0.82em" }}>
+                          amount: {formatSignedAmount(tx.amount)} {wallet.coin}
+                        </span>
                       </div>
 
                       <div className="muted" style={{ marginTop: "0.26rem", fontSize: "0.8em", display: "grid", gap: "0.15rem" }}>
+                        <div>
+                          txid:{" "}
+                          {tx.explorerUrl ? (
+                            <a href={tx.explorerUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>
+                              <code style={{ wordBreak: "break-all" }}>{tx.txid}</code>
+                            </a>
+                          ) : (
+                            <code style={{ wordBreak: "break-all" }}>{tx.txid}</code>
+                          )}
+                        </div>
                         <div>time: {formatTimestamp(tx.timestamp)}</div>
-                        <div>amount: {formatSignedAmount(tx.amount)} {wallet.coin}</div>
                         <div>
                           confirmations: {tx.confirmations ?? "n/a"}
                           {tx.blockHeight !== undefined ? ` • height: ${tx.blockHeight}` : ""}
                         </div>
+                        <AddressList
+                          title="from"
+                          addresses={tx.fromAddresses}
+                          explorerUrls={tx.fromExplorerUrls}
+                        />
+                        <AddressList
+                          title="to"
+                          addresses={tx.toAddresses}
+                          explorerUrls={tx.toExplorerUrls}
+                        />
                         {tx.blockHash ? <div>block hash: <code>{tx.blockHash}</code></div> : null}
                       </div>
                     </div>

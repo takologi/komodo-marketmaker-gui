@@ -186,6 +186,23 @@ function resolveActivationServers(coinCfg: BootstrapCoinConfig, coinDefinitions:
   };
 }
 
+function resolveRequiredConfirmations(coinCfg: BootstrapCoinConfig, coinDefinitions: JsonValue): number | undefined {
+  const fromActivationParams = coinCfg.activation?.params?.required_confirmations;
+  if (typeof fromActivationParams === "number" && Number.isFinite(fromActivationParams) && fromActivationParams >= 0) {
+    return fromActivationParams;
+  }
+
+  const coinDef = findCoinDefinition(coinDefinitions, coinCfg.coin);
+  if (!coinDef) return undefined;
+
+  const candidate = coinDef.required_confirmations;
+  if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
+    return candidate;
+  }
+
+  return undefined;
+}
+
 function defaultBootstrapConfig(): BootstrapConfig {
   return {
     version: 1,
@@ -499,6 +516,13 @@ export async function applyBootstrapConfig(): Promise<LastApplyState> {
         activationParams.servers = resolvedServers.servers;
       } else {
         delete activationParams.servers;
+      }
+
+      if (activationParams.required_confirmations === undefined) {
+        const inheritedConfs = resolveRequiredConfirmations(coinCfg, coinDefinitions);
+        if (inheritedConfs !== undefined) {
+          activationParams.required_confirmations = inheritedConfs;
+        }
       }
 
       await logDebugEvent({

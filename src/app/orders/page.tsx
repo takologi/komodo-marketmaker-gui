@@ -408,13 +408,8 @@ export default function OrdersPage() {
   const { data: walletsData } = usePolling<WalletViewEnriched[]>("/api/kcb/wallets");
   const { data: statusData } = usePolling<DashboardStatusLite>("/api/kcb/status");
 
-  const [overrides, setOverrides] = useState<Record<string, PairOverride>>({});
-  const [ltpMap, setLtpMap] = useState<LtpMap>({});
-
-  useEffect(() => {
-    setOverrides(loadOverrides());
-    setLtpMap(loadLtpMap());
-  }, []);
+  const [overrides, setOverrides] = useState<Record<string, PairOverride>>(() => loadOverrides());
+  const [ltpMap, setLtpMap] = useState<LtpMap>(() => loadLtpMap());
 
   // When a pair's server-side `show` transitions from false → true (Admin made
   // it visible again), clear any localStorage hidden override for that pair so
@@ -431,15 +426,17 @@ export default function OrdersPage() {
       prevShowRef.current[key] = pair.show;
     }
     if (cleared.length > 0) {
-      setOverrides((curr) => {
-        const updated = { ...curr };
-        for (const key of cleared) {
-          if (updated[key]) {
-            updated[key] = { ...updated[key], hidden: false };
+      queueMicrotask(() => {
+        setOverrides((curr) => {
+          const updated = { ...curr };
+          for (const key of cleared) {
+            if (updated[key]) {
+              updated[key] = { ...updated[key], hidden: false };
+            }
           }
-        }
-        saveOverrides(updated);
-        return updated;
+          saveOverrides(updated);
+          return updated;
+        });
       });
     }
   }, [pairs]);

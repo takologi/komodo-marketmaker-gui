@@ -12,6 +12,11 @@ export interface WalletTxHistoryItem {
   txid: string;
   timestamp?: number;
   amount?: number;
+  direction?: "sent" | "received" | "self" | "unknown";
+  fromAddresses?: string[];
+  toAddresses?: string[];
+  fromExplorerUrls?: string[];
+  toExplorerUrls?: string[];
   confirmations?: number;
   blockHeight?: number;
   blockHash?: string;
