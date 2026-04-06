@@ -14,6 +14,85 @@ import { JsonValue } from "@/lib/kdf/types";
 const KDF_COINS_DEFAULT_URL =
   "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/coins";
 
+const DEFAULT_PRICE_SOURCE_ITEMS: NonNullable<NonNullable<CoinSourceConfig["price_sources"]>["sources"]> = [
+  {
+    id: "komodo-earth-main",
+    type: "komodo_earth",
+    url: "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
+    enabled: true,
+    timeout_ms: 60000,
+  },
+  {
+    id: "coingecko-fallback",
+    type: "coingecko",
+    url: "https://api.coingecko.com/api/v3/simple/price",
+    enabled: true,
+    timeout_ms: 60000,
+  },
+  {
+    id: "coinpaprika-fallback",
+    type: "coinpaprika",
+    url: "https://api.coinpaprika.com/v1",
+    enabled: true,
+    timeout_ms: 60000,
+  },
+];
+
+function cloneDefaultPriceSourceItems(): NonNullable<NonNullable<CoinSourceConfig["price_sources"]>["sources"]> {
+  return DEFAULT_PRICE_SOURCE_ITEMS.map((source) => ({ ...source }));
+}
+
+function buildFallbackCoinSourcesConfig(): CoinSourceConfig {
+  return {
+    coins_config_url: process.env.KCB_COINS_CONFIG_URL ||
+      "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/utils/coins_config.json",
+    icons_base_url: process.env.KCB_ICONS_BASE_URL ||
+      "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/icons",
+    kdf_coins_url: KDF_COINS_DEFAULT_URL,
+    price_sources: {
+      enabled: true,
+      quote_ticker: "USDT",
+      sources: cloneDefaultPriceSourceItems(),
+    },
+  };
+}
+
+function normalizeCoinSourcesConfig(
+  config: CoinSourceConfig,
+): { config: CoinSourceConfig; changed: boolean; addedDefaultSourceIds: string[] } {
+  let changed = false;
+  const addedDefaultSourceIds: string[] = [];
+
+  const next: CoinSourceConfig = {
+    ...config,
+  };
+
+  if (!next.kdf_coins_url || !next.kdf_coins_url.trim()) {
+    next.kdf_coins_url = KDF_COINS_DEFAULT_URL;
+    changed = true;
+  }
+
+  if (!next.price_sources) {
+    next.price_sources = {
+      enabled: true,
+      quote_ticker: "USDT",
+      sources: cloneDefaultPriceSourceItems(),
+    };
+    addedDefaultSourceIds.push(...DEFAULT_PRICE_SOURCE_ITEMS.map((source) => source.id));
+    changed = true;
+  } else {
+    const sourceIds = new Set((next.price_sources.sources || []).map((source) => source.id));
+    const missingDefaults = DEFAULT_PRICE_SOURCE_ITEMS.filter((source) => !sourceIds.has(source.id));
+    if (missingDefaults.length > 0) {
+      next.price_sources.sources = [...(next.price_sources.sources || []), ...missingDefaults.map((source) => ({ ...source }))];
+      addedDefaultSourceIds.push(...missingDefaults.map((source) => source.id));
+      changed = true;
+    }
+  }
+
+  return { config: next, changed, addedDefaultSourceIds };
+}
+
 interface RefreshResult {
   cachedPath: string;
   metaPath: string;
@@ -25,35 +104,23 @@ interface RefreshResult {
 export async function getCoinSourcesConfig(): Promise<CoinSourceConfig> {
   await ensureKcbLayout();
   try {
-    return await readJsonFile<CoinSourceConfig>(kcbPaths.coinSources());
+    const loaded = await readJsonFile<CoinSourceConfig>(kcbPaths.coinSources());
+    const normalized = normalizeCoinSourcesConfig(loaded);
+    if (normalized.changed) {
+      await writeJsonFile(kcbPaths.coinSources(), normalized.config);
+      await logDebugEvent({
+        severity: "warning",
+        title: "KCB coin source config upgraded",
+        body: "Backfilled missing coin-sources defaults in existing config",
+        details: {
+          path: kcbPaths.coinSources(),
+          addedDefaults: normalized.addedDefaultSourceIds,
+        },
+      });
+    }
+    return normalized.config;
   } catch (error) {
-    const fallback: CoinSourceConfig = {
-      coins_config_url: process.env.KCB_COINS_CONFIG_URL ||
-        "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/utils/coins_config.json",
-      icons_base_url: process.env.KCB_ICONS_BASE_URL ||
-        "https://raw.githubusercontent.com/GLEECBTC/coins/refs/heads/master/icons",
-      kdf_coins_url: KDF_COINS_DEFAULT_URL,
-      price_sources: {
-        enabled: true,
-        quote_ticker: "USDT",
-        sources: [
-          {
-            id: "komodo-earth-main",
-            type: "komodo_earth",
-            url: "https://prices.komodo.earth/api/v2/tickers?expire_at=600",
-            enabled: true,
-            timeout_ms: 60000,
-          },
-          {
-            id: "coingecko-fallback",
-            type: "coingecko",
-            url: "https://api.coingecko.com/api/v3/simple/price",
-            enabled: true,
-            timeout_ms: 60000,
-          },
-        ],
-      },
-    };
+    const fallback = buildFallbackCoinSourcesConfig();
 
     const backup = `${kcbPaths.coinSources()}.corrupt.${Date.now()}`;
     try {

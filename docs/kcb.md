@@ -152,6 +152,7 @@ Implementation modules:
 
 - `src/lib/kcb/prices/sources/komodo-earth.ts`
 - `src/lib/kcb/prices/sources/coingecko.ts`
+- `src/lib/kcb/prices/sources/coinpaprika.ts`
 
 Source orchestration:
 
@@ -180,13 +181,15 @@ Configuration (`config/coin-sources.json`):
 - `price_sources.quote_ticker` — output quote (default `USDT`)
 - `price_sources.sources[]` — ordered list of source modules and URLs
   - `id` (unique source name)
-  - `type` (`komodo_earth` or `coingecko`)
+  - `type` (`komodo_earth`, `coingecko`, or `coinpaprika`)
   - `url`
   - `enabled`
   - `timeout_ms`
 
-KCB uses `coins_config.json` metadata (`coingecko_id`) for source mapping when required
-(e.g. Coingecko source), so coin metadata remains the primary schema authority.
+KCB uses `coins_config.json` metadata (`coingecko_id`, `coinpaprika_id`) for source mapping when required
+(e.g. Coingecko/Coinpaprika sources), so coin metadata remains the primary schema authority.
+
+Legacy `coin-sources.json` files are auto-upgraded on read if `price_sources` or default source entries are missing.
 
 ## Direct orders
 

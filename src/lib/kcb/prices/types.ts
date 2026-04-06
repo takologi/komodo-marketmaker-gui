@@ -4,6 +4,7 @@ import { PriceSourceConfigItem } from "@/lib/kcb/types";
 export interface PriceAsset {
   ticker: string;
   coingeckoId?: string;
+  coinpaprikaId?: string;
 }
 
 export interface PriceSourceContext {

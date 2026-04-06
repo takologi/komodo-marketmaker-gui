@@ -134,7 +134,11 @@ Use provided examples:
 - `deploy/examples/coin-sources.example.json`
 
 `coin-sources.json` now also controls modular external reference-price sources used by KCB
-dashboard status aggregation. Configure source list and URLs under `price_sources.sources[]`.
+dashboard status aggregation. Configure source list and URLs under `price_sources.sources[]`
+(default includes Komodo Earth, Coingecko, and Coinpaprika fallbacks).
+
+If an existing deployment has a legacy `coin-sources.json` without `price_sources`, KCB now backfills
+the missing defaults automatically on startup/read.
 
 Write bootstrap config using:
 

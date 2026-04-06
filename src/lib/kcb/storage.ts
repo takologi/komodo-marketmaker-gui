@@ -77,6 +77,13 @@ function defaultCoinSources(): CoinSourceConfig {
           enabled: true,
           timeout_ms: 60000,
         },
+        {
+          id: "coinpaprika-fallback",
+          type: "coinpaprika",
+          url: "https://api.coinpaprika.com/v1",
+          enabled: true,
+          timeout_ms: 60000,
+        },
       ],
     },
   };

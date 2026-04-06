@@ -166,7 +166,7 @@ export interface CoinSourceConfig {
   price_sources?: PriceSourcesConfig;
 }
 
-export type PriceSourceType = "komodo_earth" | "coingecko";
+export type PriceSourceType = "komodo_earth" | "coingecko" | "coinpaprika";
 
 export interface PriceSourceConfigItem {
   /** Stable source identifier (for logs and diagnostics), e.g. "komodo-earth-main". */

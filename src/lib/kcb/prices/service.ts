@@ -9,6 +9,7 @@ import { asString } from "@/lib/kdf/adapters/common";
 import { PriceAsset, PriceSourceFetcher } from "@/lib/kcb/prices/types";
 import { fetchFromKomodoEarth } from "@/lib/kcb/prices/sources/komodo-earth";
 import { fetchFromCoingecko } from "@/lib/kcb/prices/sources/coingecko";
+import { fetchFromCoinpaprika } from "@/lib/kcb/prices/sources/coinpaprika";
 import { waitForSourceThrottleWindow } from "@/lib/kcb/prices/throttling";
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
@@ -60,6 +61,7 @@ function buildAssets(tickers: string[], coinDefs: JsonValue): PriceAsset[] {
     output.push({
       ticker: normalizedTicker,
       coingeckoId: parseCoinMetadataId(def, "coingecko_id", "coingeckoId"),
+      coinpaprikaId: parseCoinMetadataId(def, "coinpaprika_id", "coinpaprikaId"),
     });
   }
 
@@ -79,6 +81,7 @@ function normalizeSourceEnabled(source: PriceSourceConfigItem): boolean {
 function getSourceFetcher(type: PriceSourceConfigItem["type"]): PriceSourceFetcher | null {
   if (type === "komodo_earth") return fetchFromKomodoEarth;
   if (type === "coingecko") return fetchFromCoingecko;
+  if (type === "coinpaprika") return fetchFromCoinpaprika;
   return null;
 }
 
