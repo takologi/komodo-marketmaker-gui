@@ -73,8 +73,8 @@ function parsePairReferencePrices(raw: StatusViewRaw | undefined): Record<string
     ];
     const price = candidates
       .map((v) => asNumber(v, Number.NaN))
-      .find((n) => Number.isFinite(n) && n > 0);
-    if (price && Number.isFinite(price) && price > 0) {
+      .find((n) => Number.isFinite(n) && n >= 0);
+    if (price !== undefined && Number.isFinite(price) && price >= 0) {
       output[pair] = price;
     }
   }

@@ -101,9 +101,10 @@ interface DashboardStatusLite {
 
 function getUsdPrice(ticker: string, refs: Record<string, number>): number {
   const direct = refs[`${ticker.toUpperCase()}/USDT`];
-  if (Number.isFinite(direct) && direct > 0) return direct;
+  if (Number.isFinite(direct) && direct >= 0) return direct;
   const reverse = refs[`USDT/${ticker.toUpperCase()}`];
   if (Number.isFinite(reverse) && reverse > 0) return safeDiv(1, reverse);
+  if (Number.isFinite(reverse) && reverse === 0) return 0;
   return 0;
 }
 
@@ -161,27 +162,7 @@ function PairSection({
   const asksMaxTotalRaw = asksRaw.reduce((max, e) => Math.max(max, e.volume * e.price), 0);
   const bidsMaxTotalRaw = bidsRaw.reduce((max, e) => Math.max(max, e.volume * e.price), 0);
 
-  const askRows: RenderOrderRow[] = asksRaw
-    .map((e) => {
-      const rawPriceRelPerBase = e.price;
-      const priceBasePerRel = rawPriceRelPerBase > 0 ? safeDiv(1, rawPriceRelPerBase) : 0;
-      const quantityBase = e.volume;
-      const totalRel = quantityBase * rawPriceRelPerBase;
-      const displayPrice = priceBasePerRel * safeDiv(baseScale, relScale);
-      const displayQuantity = quantityBase * baseScale;
-      const displayTotal = totalRel * relScale;
-      return {
-        uuid: e.uuid,
-        mine: e.mine,
-        price: displayPrice,
-        quantity: displayQuantity,
-        total: displayTotal,
-        depthPct: asksMaxTotalRaw > 0 ? (totalRel / asksMaxTotalRaw) * 100 : 0,
-      };
-    })
-    .sort((a, b) => b.price - a.price);
-
-  const bidRows: RenderOrderRow[] = bidsRaw
+  const askRows: RenderOrderRow[] = bidsRaw
     .map((e) => {
       const rawPriceRelPerBase = e.price;
       const priceBasePerRel = rawPriceRelPerBase > 0 ? safeDiv(1, rawPriceRelPerBase) : 0;
@@ -197,6 +178,26 @@ function PairSection({
         quantity: displayQuantity,
         total: displayTotal,
         depthPct: bidsMaxTotalRaw > 0 ? (totalRel / bidsMaxTotalRaw) * 100 : 0,
+      };
+    })
+    .sort((a, b) => b.price - a.price);
+
+  const bidRows: RenderOrderRow[] = asksRaw
+    .map((e) => {
+      const rawPriceRelPerBase = e.price;
+      const priceBasePerRel = rawPriceRelPerBase > 0 ? safeDiv(1, rawPriceRelPerBase) : 0;
+      const quantityBase = e.volume;
+      const totalRel = quantityBase * rawPriceRelPerBase;
+      const displayPrice = priceBasePerRel * safeDiv(baseScale, relScale);
+      const displayQuantity = quantityBase * baseScale;
+      const displayTotal = totalRel * relScale;
+      return {
+        uuid: e.uuid,
+        mine: e.mine,
+        price: displayPrice,
+        quantity: displayQuantity,
+        total: displayTotal,
+        depthPct: asksMaxTotalRaw > 0 ? (totalRel / asksMaxTotalRaw) * 100 : 0,
       };
     })
     .sort((a, b) => b.price - a.price);
@@ -217,6 +218,22 @@ function PairSection({
   const baseUsd = getUsdPrice(displayBase, referencePrices);
   const relUsd = getUsdPrice(displayRel, referencePrices);
   const referencePairPrice = baseUsd > 0 && relUsd > 0 ? safeDiv(baseUsd, relUsd) : 0;
+  const baseDirectRef = referencePrices[`${displayBase.toUpperCase()}/USDT`];
+  const baseReverseRef = referencePrices[`USDT/${displayBase.toUpperCase()}`];
+  const relDirectRef = referencePrices[`${displayRel.toUpperCase()}/USDT`];
+  const relReverseRef = referencePrices[`USDT/${displayRel.toUpperCase()}`];
+  const baseRefText =
+    baseDirectRef !== undefined
+      ? String(baseDirectRef)
+      : baseReverseRef !== undefined
+        ? `1/${String(baseReverseRef)}`
+        : "null";
+  const relRefText =
+    relDirectRef !== undefined
+      ? String(relDirectRef)
+      : relReverseRef !== undefined
+        ? `1/${String(relReverseRef)}`
+        : "null";
 
   const ltpKey = pairKey(displayBase, displayRel);
   const ltp = ltpMap[ltpKey] ?? 0;
@@ -266,7 +283,10 @@ function PairSection({
               ({mineOrders}/{totalOrders})
             </span>
           ) : null}
-          <span className="muted pair-title-meta">
+          <span
+            className="muted pair-title-meta"
+            title={`${displayBase}/USDT: ${baseRefText}\n${displayRel}/USDT: ${relRefText}`}
+          >
             ref: {referencePairPrice > 0 ? toFixedSafe(referencePairPrice, priceDecimals) : "---"}
           </span>
         </h3>
