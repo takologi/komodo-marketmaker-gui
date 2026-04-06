@@ -179,7 +179,7 @@ function PairSection({
         depthPct: asksMaxTotalRaw > 0 ? (totalRel / asksMaxTotalRaw) * 100 : 0,
       };
     })
-    .sort((a, b) => a.price - b.price);
+    .sort((a, b) => b.price - a.price);
 
   const bidRows: RenderOrderRow[] = bidsRaw
     .map((e) => {
@@ -215,7 +215,13 @@ function PairSection({
 
   const baseUsd = getUsdPrice(displayBase, referencePrices);
   const relUsd = getUsdPrice(displayRel, referencePrices);
-  const referencePairPrice = baseUsd > 0 && relUsd > 0 ? safeDiv(relUsd, baseUsd) : 0;
+  const directPairPrice = referencePrices[`${displayBase.toUpperCase()}/${displayRel.toUpperCase()}`];
+  const referencePairPrice =
+    Number.isFinite(directPairPrice) && directPairPrice > 0
+      ? directPairPrice
+      : baseUsd > 0 && relUsd > 0
+        ? safeDiv(baseUsd, relUsd)
+        : 0;
   const baseDirectRef = referencePrices[`${displayBase.toUpperCase()}/USDT`];
   const baseReverseRef = referencePrices[`USDT/${displayBase.toUpperCase()}`];
   const relDirectRef = referencePrices[`${displayRel.toUpperCase()}/USDT`];
