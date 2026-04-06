@@ -95,6 +95,18 @@ interface RenderOrderRow {
   depthPct: number;
 }
 
+interface DashboardStatusLite {
+  referencePricesByPair?: Record<string, number>;
+}
+
+function getUsdPrice(ticker: string, refs: Record<string, number>): number {
+  const direct = refs[`${ticker.toUpperCase()}/USDT`];
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const reverse = refs[`USDT/${ticker.toUpperCase()}`];
+  if (Number.isFinite(reverse) && reverse > 0) return safeDiv(1, reverse);
+  return 0;
+}
+
 // ---------------------------------------------------------------------------
 // Orderbook section per pair
 // ---------------------------------------------------------------------------
@@ -108,6 +120,7 @@ function PairSection({
   override,
   ltpMap,
   wallets,
+  referencePrices,
   onSetLtp,
   onSwap,
   onHide,
@@ -119,6 +132,7 @@ function PairSection({
   override: PairOverride;
   ltpMap: LtpMap;
   wallets: WalletViewEnriched[];
+  referencePrices: Record<string, number>;
   onSetLtp: (base: string, rel: string, value: number) => void;
   onSwap: () => void;
   onHide: () => void;
@@ -165,8 +179,7 @@ function PairSection({
         depthPct: asksMaxTotalRaw > 0 ? (totalRel / asksMaxTotalRaw) * 100 : 0,
       };
     })
-    // Ask side in X/Y notation: ascending X/Y == descending native Y/X.
-    .sort((a, b) => a.price - b.price);
+    .sort((a, b) => b.price - a.price);
 
   const bidRows: RenderOrderRow[] = bidsRaw
     .map((e) => {
@@ -197,9 +210,13 @@ function PairSection({
   const mineOrders = mineAsks.length + mineBids.length;
 
   const highestBid = bidRows.length > 0 ? bidRows[0].price : 0;
-  const lowestAsk = askRows.length > 0 ? askRows[0].price : 0;
+  const lowestAsk = askRows.length > 0 ? askRows[askRows.length - 1].price : 0;
   const spreadAbs = lowestAsk > 0 && highestBid > 0 ? lowestAsk - highestBid : 0;
   const spreadPct = lowestAsk > 0 ? (spreadAbs / lowestAsk) * 100 : 0;
+
+  const baseUsd = getUsdPrice(displayBase, referencePrices);
+  const relUsd = getUsdPrice(displayRel, referencePrices);
+  const referencePairPrice = baseUsd > 0 && relUsd > 0 ? safeDiv(baseUsd, relUsd) : 0;
 
   const ltpKey = pairKey(displayBase, displayRel);
   const ltp = ltpMap[ltpKey] ?? 0;
@@ -249,6 +266,9 @@ function PairSection({
               ({mineOrders}/{totalOrders})
             </span>
           ) : null}
+          <span className="muted pair-title-meta">
+            ref: {referencePairPrice > 0 ? toFixedSafe(referencePairPrice, priceDecimals) : "---"}
+          </span>
         </h3>
         <div className="pair-controls">
           <button onClick={onSwap} title="Switch pair direction" style={{ fontSize: "0.8em" }}>
@@ -366,6 +386,7 @@ export default function OrdersPage() {
     "/api/kcb/pairs",
   );
   const { data: walletsData } = usePolling<WalletViewEnriched[]>("/api/kcb/wallets");
+  const { data: statusData } = usePolling<DashboardStatusLite>("/api/kcb/status");
 
   const [overrides, setOverrides] = useState<Record<string, PairOverride>>({});
   const [ltpMap, setLtpMap] = useState<LtpMap>({});
@@ -503,6 +524,7 @@ export default function OrdersPage() {
               override={override}
               ltpMap={ltpMap}
               wallets={walletsData ?? []}
+              referencePrices={statusData?.referencePricesByPair ?? {}}
               onSetLtp={setLtp}
               onSwap={() => updateOverride(pair, { swapped: !override.swapped })}
               onHide={() => updateOverride(pair, { hidden: true })}

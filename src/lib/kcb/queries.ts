@@ -2,7 +2,7 @@ import "server-only";
 
 import { adaptOrders } from "@/lib/kdf/adapters/orders";
 import { adaptStatus } from "@/lib/kdf/adapters/status";
-import { WalletViewEnriched } from "@/lib/kdf/adapters/wallets";
+import { WalletTxHistoryItem, WalletViewEnriched } from "@/lib/kdf/adapters/wallets";
 import { adaptMovements } from "@/lib/kdf/adapters/movements";
 import { asNumber, asString } from "@/lib/kdf/adapters/common";
 import {
@@ -11,10 +11,14 @@ import {
   fetchVersionOptional,
   fetchCoinBalanceSafe,
   fetchMovementsRawWithAvailability,
+  fetchTxHistoryRawOptional,
   StatusViewRaw,
+  TxHistoryRaw,
 } from "@/lib/kdf/client";
 import { ensureKcbLayout } from "@/lib/kcb/storage";
+import { getCoinDefinitions } from "@/lib/kcb/coins/provider";
 import { getBootstrapConfig, getLastApplyState } from "@/lib/kcb/bootstrap/service";
+import { JsonObject, JsonValue } from "@/lib/kdf/types";
 
 interface PairStatus {
   pair: string;
@@ -36,12 +40,176 @@ export interface KcbDashboardStatusView {
   pairsWithActiveOrders: number;
   activeOrderUuids: string[];
   pairStatuses: PairStatus[];
+  referencePricesByPair: Record<string, number>;
   version: {
     available: boolean;
     value: string;
     sourceMethod: string;
     message?: string;
   };
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function parsePairReferencePrices(raw: StatusViewRaw | undefined): Record<string, number> {
+  const output: Record<string, number> = {};
+  if (!raw || !Array.isArray(raw.pairs)) return output;
+
+  for (const item of raw.pairs) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as StatusViewRaw;
+    const pair = asString(row.pair, "").toUpperCase();
+    if (!pair.includes("/")) continue;
+
+    const candidates = [
+      row.price,
+      row.last_price,
+      row.reference_price,
+      row.oracle_price,
+      row.best_ask,
+      row.best_bid,
+    ];
+    const price = candidates
+      .map((v) => asNumber(v, Number.NaN))
+      .find((n) => Number.isFinite(n) && n > 0);
+    if (price && Number.isFinite(price) && price > 0) {
+      output[pair] = price;
+    }
+  }
+
+  return output;
+}
+
+function pickCoinDefinitionByTicker(coinDefs: JsonValue, ticker: string): JsonObject | null {
+  const wanted = ticker.toUpperCase();
+  if (Array.isArray(coinDefs)) {
+    for (const item of coinDefs) {
+      if (!isJsonObject(item)) continue;
+      const coin = asString(item.coin ?? item.ticker ?? item.symbol, "").toUpperCase();
+      if (coin === wanted) return item;
+    }
+    return null;
+  }
+
+  if (!isJsonObject(coinDefs)) return null;
+  const direct = coinDefs[wanted];
+  if (isJsonObject(direct)) return direct;
+
+  for (const value of Object.values(coinDefs)) {
+    if (!isJsonObject(value)) continue;
+    const coin = asString(value.coin ?? value.ticker ?? value.symbol, "").toUpperCase();
+    if (coin === wanted) return value;
+  }
+  return null;
+}
+
+function normalizeExplorerTemplate(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return trimmed;
+}
+
+function pickTxExplorerTemplate(def: JsonObject | null): string | undefined {
+  if (!def) return undefined;
+
+  const directCandidates = [
+    def.tx_explorer_url,
+    def.explorer_tx_url,
+    def.txurl,
+    def.tx_url,
+    def.transaction_url,
+  ];
+  for (const candidate of directCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return normalizeExplorerTemplate(candidate);
+    }
+  }
+
+  const explorers = def.explorers;
+  if (Array.isArray(explorers)) {
+    for (const entry of explorers) {
+      if (typeof entry === "string" && entry.trim()) {
+        return normalizeExplorerTemplate(entry);
+      }
+      if (isJsonObject(entry)) {
+        const objectCandidates = [
+          entry.tx,
+          entry.tx_url,
+          entry.txurl,
+          entry.transaction,
+          entry.transaction_url,
+          entry.url,
+          entry.explorer,
+        ];
+        for (const candidate of objectCandidates) {
+          if (typeof candidate === "string" && candidate.trim()) {
+            return normalizeExplorerTemplate(candidate);
+          }
+        }
+      }
+    }
+  }
+
+  const fallback = def.explorer_url ?? def.explorer;
+  if (typeof fallback === "string" && fallback.trim()) {
+    return normalizeExplorerTemplate(fallback);
+  }
+
+  return undefined;
+}
+
+function buildExplorerTxUrl(template: string | undefined, txid: string): string | undefined {
+  if (!template || !txid) return undefined;
+
+  if (template.includes("{txid}")) {
+    return template.replaceAll("{txid}", txid);
+  }
+
+  if (template.includes("%s")) {
+    return template.replace("%s", txid);
+  }
+
+  const normalized = template.endsWith("/") ? template : `${template}/`;
+  return `${normalized}tx/${txid}`;
+}
+
+function pickString(...values: Array<JsonValue | undefined>): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function toWalletTxHistoryRows(rows: TxHistoryRaw[], explorerTemplate?: string): WalletTxHistoryItem[] {
+  return rows
+    .map((row) => {
+      const txid = pickString(row.tx_hash, row.txid, row.hash, row.internal_id, row.id);
+      if (!txid) return null;
+
+      const amount = asNumber(
+        row.my_balance_change ?? row.received_by_me ?? row.spent_by_me ?? row.amount,
+        Number.NaN,
+      );
+
+      return {
+        txid,
+        timestamp: asNumber(row.timestamp ?? row.time, Number.NaN),
+        amount: Number.isFinite(amount) ? amount : undefined,
+        confirmations: asNumber(row.confirmations, Number.NaN),
+        blockHeight: asNumber(row.block_height ?? row.height, Number.NaN),
+        blockHash: pickString(row.block_hash),
+        explorerUrl: buildExplorerTxUrl(explorerTemplate, txid),
+      } as WalletTxHistoryItem;
+    })
+    .filter((row): row is WalletTxHistoryItem => Boolean(row))
+    .map((row) => ({
+      ...row,
+      timestamp: Number.isFinite(row.timestamp ?? Number.NaN) ? row.timestamp : undefined,
+      confirmations: Number.isFinite(row.confirmations ?? Number.NaN) ? row.confirmations : undefined,
+      blockHeight: Number.isFinite(row.blockHeight ?? Number.NaN) ? row.blockHeight : undefined,
+    }));
 }
 
 function parseConfiguredPairs(raw: StatusViewRaw, statusPair: string): string[] {
@@ -138,6 +306,7 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     pairsWithActiveOrders: pairStatuses.filter((pair) => pair.hasActiveOrders).length,
     activeOrderUuids,
     pairStatuses,
+    referencePricesByPair: parsePairReferencePrices(rawStatusOptional.raw),
     version: {
       available: versionOptional.available,
       value: versionOptional.available ? String(versionOptional.result ?? "available") : "not available",
@@ -155,7 +324,11 @@ export async function getKcbOrders() {
 
 export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
   await ensureKcbLayout();
-  const [cfg, lastApply] = await Promise.all([getBootstrapConfig(), getLastApplyState()]);
+  const [cfg, lastApply, coinDefs] = await Promise.all([
+    getBootstrapConfig(),
+    getLastApplyState(),
+    getCoinDefinitions(),
+  ]);
 
   // Build coin → activation error map from last-apply error strings.
   // Expected format: "activation failed for BTC: <reason>"
@@ -174,12 +347,31 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
       if (raw) {
         const balance = asNumber(raw.balance);
         const unspendable = asNumber(raw.unspendable_balance, 0);
+        const explicitSpendable = asNumber(raw.spendable_balance ?? raw.available, Number.NaN);
+        const spendable = Number.isNaN(explicitSpendable)
+          ? Math.max(0, balance - unspendable)
+          : Math.max(0, explicitSpendable);
+        const requiredConfirmations = asNumber(raw.required_confirmations, Number.NaN);
+
+        const coinDef = pickCoinDefinitionByTicker(coinDefs, ticker);
+        const explorerTemplate = pickTxExplorerTemplate(coinDef);
+        const txHistoryRaw = await fetchTxHistoryRawOptional(ticker, 20);
+
         return {
           coin: asString(raw.ticker ?? raw.coin, ticker),
           activated: true,
           address: asString(raw.address, undefined),
           balance,
-          spendable: Math.max(0, balance - unspendable),
+          spendable,
+          unspendable,
+          requiredConfirmations: Number.isFinite(requiredConfirmations)
+            ? requiredConfirmations
+            : undefined,
+          txHistory: {
+            available: txHistoryRaw.available,
+            message: txHistoryRaw.message,
+            rows: toWalletTxHistoryRows(txHistoryRaw.rows, explorerTemplate),
+          },
         };
       }
       return {

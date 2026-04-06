@@ -8,6 +8,22 @@ export interface WalletView {
   spendable: number;
 }
 
+export interface WalletTxHistoryItem {
+  txid: string;
+  timestamp?: number;
+  amount?: number;
+  confirmations?: number;
+  blockHeight?: number;
+  blockHash?: string;
+  explorerUrl?: string;
+}
+
+export interface WalletTxHistoryView {
+  available: boolean;
+  message?: string;
+  rows: WalletTxHistoryItem[];
+}
+
 /** Enriched wallet entry — includes all bootstrap-configured coins, even those
  *  that failed activation. `activated=false` entries carry an `error` string
  *  instead of address/balance. */
@@ -20,6 +36,12 @@ export interface WalletViewEnriched {
   balance?: number;
   /** Spendable balance — present only when `activated=true`. */
   spendable?: number;
+  /** Required confirmations returned by KDF balance call, if present. */
+  requiredConfirmations?: number;
+  /** Unspendable portion returned by KDF, if present. */
+  unspendable?: number;
+  /** Optional per-wallet transaction history information. */
+  txHistory?: WalletTxHistoryView;
   /** Activation error message — present only when `activated=false`. */
   error?: string;
 }

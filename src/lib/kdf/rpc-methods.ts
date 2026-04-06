@@ -36,6 +36,12 @@ export const KDF_RPC_METHOD_SPECS: Record<string, KdfRpcMethodSpec> = {
     apiVersion: "legacy",
     description: "Read recent swaps/movements",
   },
+  my_tx_history: {
+    method: "my_tx_history",
+    apiVersion: "legacy",
+    description: "Read wallet transaction history for a coin",
+    requiresPayload: true,
+  },
   version: {
     method: "version",
     apiVersion: "legacy",

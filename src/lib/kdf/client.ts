@@ -331,6 +331,17 @@ export interface MovementViewRaw {
   [key: string]: JsonValue;
 }
 
+export interface TxHistoryRaw {
+  [key: string]: JsonValue;
+}
+
+export interface TxHistoryRawResponse {
+  available: boolean;
+  method?: string;
+  message?: string;
+  rows: TxHistoryRaw[];
+}
+
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -527,6 +538,9 @@ export async function fetchWalletsRaw(): Promise<WalletViewRaw[]> {
             address: balanceResult.address ?? row.address,
             balance: balanceResult.balance,
             unspendable_balance: balanceResult.unspendable_balance,
+            spendable_balance: balanceResult.spendable_balance,
+            available: balanceResult.available,
+            required_confirmations: balanceResult.required_confirmations,
           };
         }
 
@@ -566,6 +580,9 @@ export async function fetchCoinBalanceSafe(ticker: string): Promise<WalletViewRa
         address: result.address,
         balance: result.balance,
         unspendable_balance: result.unspendable_balance,
+        spendable_balance: result.spendable_balance,
+        available: result.available,
+        required_confirmations: result.required_confirmations,
       } as WalletViewRaw;
     }
     return null;
@@ -638,4 +655,82 @@ export async function fetchMovementsRawWithAvailability(): Promise<MovementsRawR
 
 export async function fetchVersionOptional(): Promise<OptionalRpcResponse> {
   return tryOptionalRpc(["version", "get_version"]);
+}
+
+export async function fetchTxHistoryRawOptional(
+  coin: string,
+  limit = 20,
+): Promise<TxHistoryRawResponse> {
+  const method = "my_tx_history";
+  if (unsupportedMethodsCache.has(method)) {
+    return {
+      available: false,
+      message: "my_tx_history is not available in this KDF build.",
+      rows: [],
+    };
+  }
+
+  try {
+    const result = await doRpcCall<JsonValue>(method, {
+      coin,
+      limit,
+      page_number: 1,
+    });
+
+    if (Array.isArray(result)) {
+      return {
+        available: true,
+        method,
+        rows: result.filter((x): x is TxHistoryRaw => typeof x === "object" && x !== null),
+      };
+    }
+
+    if (isJsonObject(result)) {
+      const candidates = [result.transactions, result.result, result.items];
+      for (const candidate of candidates) {
+        if (Array.isArray(candidate)) {
+          return {
+            available: true,
+            method,
+            rows: candidate.filter((x): x is TxHistoryRaw => typeof x === "object" && x !== null),
+          };
+        }
+
+        if (isJsonObject(candidate) && Array.isArray(candidate.transactions)) {
+          return {
+            available: true,
+            method,
+            rows: candidate.transactions.filter(
+              (x): x is TxHistoryRaw => typeof x === "object" && x !== null,
+            ),
+          };
+        }
+      }
+    }
+
+    return {
+      available: true,
+      method,
+      rows: [],
+      message: "my_tx_history returned no rows in a recognized shape.",
+    };
+  } catch (error) {
+    const message = parseErrorMessage(error);
+    if (isMethodNotAvailableError(message)) {
+      unsupportedMethodsCache.add(method);
+      return {
+        available: false,
+        method,
+        message: "my_tx_history is not available in this KDF build.",
+        rows: [],
+      };
+    }
+
+    return {
+      available: false,
+      method,
+      message,
+      rows: [],
+    };
+  }
 }
