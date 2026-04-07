@@ -97,6 +97,20 @@ interface RenderOrderRow {
 
 interface DashboardStatusLite {
   referencePricesByPair?: Record<string, number> | null;
+  referencePairMetaByPair?: Record<string, { sourceId: string; fetchedAt: string }> | null;
+}
+
+function formatFetchTimestamp(value?: string): string {
+  if (!value) return "n/a";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "n/a";
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${dd}.${mm}.${yyyy} ${hh}:${min}:${ss}`;
 }
 
 function getUsdPrice(ticker: string, refs: Record<string, number>): number {
@@ -122,6 +136,7 @@ function PairSection({
   ltpMap,
   wallets,
   referencePrices,
+  referencePairMetaByPair,
   onSetLtp,
   onSwap,
   onHide,
@@ -134,6 +149,7 @@ function PairSection({
   ltpMap: LtpMap;
   wallets: WalletViewEnriched[];
   referencePrices: Record<string, number>;
+  referencePairMetaByPair: Record<string, { sourceId: string; fetchedAt: string }>;
   onSetLtp: (base: string, rel: string, value: number) => void;
   onSwap: () => void;
   onHide: () => void;
@@ -222,6 +238,11 @@ function PairSection({
       : baseUsd > 0 && relUsd > 0
         ? safeDiv(baseUsd, relUsd)
         : 0;
+  const displayReferencePairPrice = referencePairPrice * safeDiv(baseScale, relScale);
+  const refPairKey = `${displayBase.toUpperCase()}/${displayRel.toUpperCase()}`;
+  const refMeta = referencePairMetaByPair[refPairKey];
+  const refSourceText = refMeta?.sourceId ?? "n/a";
+  const refFetchedAtText = formatFetchTimestamp(refMeta?.fetchedAt);
   const baseDirectRef = referencePrices[`${displayBase.toUpperCase()}/USDT`];
   const baseReverseRef = referencePrices[`USDT/${displayBase.toUpperCase()}`];
   const relDirectRef = referencePrices[`${displayRel.toUpperCase()}/USDT`];
@@ -280,7 +301,7 @@ function PairSection({
       )}
       <div className="pair-header">
         <h3 className="pair-title">
-          {displayBase}/{displayRel}
+          {displayBaseTicker}/{displayRelTicker}
           {orderbookData ? (
             <span
               className="muted pair-title-meta"
@@ -293,7 +314,9 @@ function PairSection({
             className="muted pair-title-meta"
             title={`${displayBase}/USDT: ${baseRefText}\n${displayRel}/USDT: ${relRefText}`}
           >
-            ref: {referencePairPrice > 0 ? toFixedSafe(referencePairPrice, priceDecimals) : "---"}
+            {displayReferencePairPrice > 0
+              ? `ref: 1 ${displayRelTicker} = ${toFixedSafe(displayReferencePairPrice, priceDecimals)} ${displayBaseTicker} (${refSourceText}, ${refFetchedAtText})`
+              : "ref: ---"}
           </span>
         </h3>
         <div className="pair-controls">
@@ -548,6 +571,7 @@ export default function OrdersPage() {
               ltpMap={ltpMap}
               wallets={walletsData ?? []}
               referencePrices={statusData?.referencePricesByPair ?? {}}
+              referencePairMetaByPair={statusData?.referencePairMetaByPair ?? {}}
               onSetLtp={setLtp}
               onSwap={() =>
                 updateOverride(pair, {

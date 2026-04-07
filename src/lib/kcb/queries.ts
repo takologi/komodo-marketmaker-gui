@@ -27,6 +27,11 @@ interface PairStatus {
   hasActiveOrders: boolean;
 }
 
+export interface ReferencePairMeta {
+  sourceId: string;
+  fetchedAt: string;
+}
+
 export interface KcbDashboardStatusView {
   connectionOk: boolean;
   connectionMessage: string;
@@ -43,6 +48,7 @@ export interface KcbDashboardStatusView {
   activeOrderUuids: string[];
   pairStatuses: PairStatus[];
   referencePricesByPair: Record<string, number> | null;
+  referencePairMetaByPair: Record<string, ReferencePairMeta> | null;
   version: {
     available: boolean;
     value: string;
@@ -524,6 +530,10 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
       ...externalReferenceDetails.mergedByPair,
     };
 
+  const referencePairMetaByPair = externalReferenceDetails.mergedMetaByPair === null
+    ? null
+    : { ...externalReferenceDetails.mergedMetaByPair };
+
   return {
     connectionOk: true,
     connectionMessage: "KCB connected to KDF RPC adapter",
@@ -540,6 +550,7 @@ export async function getKcbDashboardStatus(): Promise<KcbDashboardStatusView> {
     activeOrderUuids,
     pairStatuses,
     referencePricesByPair: mergedReferencePrices,
+    referencePairMetaByPair,
     version: {
       available: versionOptional.available,
       value: versionOptional.available ? String(versionOptional.result ?? "available") : "not available",
@@ -612,6 +623,7 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
           unspendable,
           referenceQuoteTicker: externalReferenceDetails.quoteTicker,
           referencePricesBySource: externalReferenceDetails.byTickerBySource?.[ticker] ?? null,
+          referencePriceFetchedAtBySource: externalReferenceDetails.byTickerFetchedAtBySource?.[ticker] ?? null,
           requiredConfirmations: Number.isFinite(requiredConfirmations)
             ? requiredConfirmations
             : undefined,
@@ -631,6 +643,7 @@ export async function getKcbWallets(): Promise<WalletViewEnriched[]> {
         activated: false,
         referenceQuoteTicker: externalReferenceDetails.quoteTicker,
         referencePricesBySource: externalReferenceDetails.byTickerBySource?.[ticker] ?? null,
+        referencePriceFetchedAtBySource: externalReferenceDetails.byTickerFetchedAtBySource?.[ticker] ?? null,
         error: coinErrorMap.get(ticker) ?? "Coin is not activated",
       };
     }),

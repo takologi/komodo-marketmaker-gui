@@ -6,6 +6,19 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { usePolling } from "@/components/use-polling";
 import { WalletViewEnriched } from "@/lib/kdf/adapters/wallets";
 
+function formatFetchTimestamp(value?: string): string {
+  if (!value) return "n/a";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "n/a";
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${dd}.${mm}.${yyyy} ${hh}:${min}:${ss}`;
+}
+
 function formatTimestamp(ts?: number): string {
   if (!Number.isFinite(ts ?? Number.NaN) || !ts) return "n/a";
   const millis = ts < 10_000_000_000 ? ts * 1000 : ts;
@@ -151,7 +164,7 @@ function WalletCard({ wallet }: { wallet: WalletViewEnriched }) {
           <div style={{ display: "grid", gap: "0.08rem", paddingLeft: "0.45rem" }}>
             {sourceEntries.map(([sourceId, value]) => (
               <div key={`${wallet.coin}-${sourceId}`}>
-                {sourceId}: {value.toFixed(8)}
+                {sourceId}: {value.toFixed(8)} ({formatFetchTimestamp(wallet.referencePriceFetchedAtBySource?.[sourceId])})
               </div>
             ))}
           </div>

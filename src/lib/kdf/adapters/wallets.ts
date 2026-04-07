@@ -51,6 +51,8 @@ export interface WalletViewEnriched {
   referenceQuoteTicker?: string;
   /** External reference prices by source id, only reachable sources with values. */
   referencePricesBySource?: Record<string, number> | null;
+  /** Last fetch timestamp per source id for the displayed reference price. */
+  referencePriceFetchedAtBySource?: Record<string, string> | null;
   /** Activation error message — present only when `activated=false`. */
   error?: string;
 }
