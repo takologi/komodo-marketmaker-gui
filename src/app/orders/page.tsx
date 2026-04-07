@@ -238,7 +238,7 @@ function PairSection({
       : baseUsd > 0 && relUsd > 0
         ? safeDiv(baseUsd, relUsd)
         : 0;
-  const displayReferencePairPrice = referencePairPrice * safeDiv(baseScale, relScale);
+  const displayReferencePairPrice = referencePairPrice * safeDiv(relScale, baseScale);
   const refPairKey = `${displayBase.toUpperCase()}/${displayRel.toUpperCase()}`;
   const refMeta = referencePairMetaByPair[refPairKey];
   const refSourceText = refMeta?.sourceId ?? "n/a";
@@ -315,7 +315,7 @@ function PairSection({
             title={`${displayBase}/USDT: ${baseRefText}\n${displayRel}/USDT: ${relRefText}`}
           >
             {displayReferencePairPrice > 0
-              ? `ref: 1 ${displayRelTicker} = ${toFixedSafe(displayReferencePairPrice, priceDecimals)} ${displayBaseTicker} (${refSourceText}, ${refFetchedAtText})`
+              ? `ref: 1 ${displayBaseTicker} = ${toFixedSafe(displayReferencePairPrice, priceDecimals)} ${displayRelTicker} (${refSourceText}, ${refFetchedAtText})`
               : "ref: ---"}
           </span>
         </h3>
